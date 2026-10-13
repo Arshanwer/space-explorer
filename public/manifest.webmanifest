@@ -1,0 +1,1 @@
+{ "name": "Space Explorer", "short_name": "Space", "display": "fullscreen", "orientation": "any", "background_color": "#02040a", "theme_color": "#02040a", "start_url": "./", "icons": [{ "src": "icon.png", "sizes": "512x512", "type": "image/png" }] }

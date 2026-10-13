@@ -1,0 +1,23 @@
+{
+  "name": "space-explorer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A real-textured, free-roam solar system for kids: planets, moons, real asteroids, planet cutaways and a Space Station you can float through.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:link": "node scripts/build-link.mjs",
+    "serve": "node serve.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource/andika": "5.1.0",
+    "@fontsource/fredoka": "5.1.0",
+    "gsap": "3.12.5",
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "vite": "5.4.10"
+  }
+}
