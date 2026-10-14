@@ -22,6 +22,7 @@ export const BODIES = [
       { icon: '🌍', text: 'About 1.3 million Earths could fit inside it!' },
       { icon: '⏱️', text: 'Sunlight takes 8 minutes to zoom all the way to Earth.' },
     ],
+    actions: [{ id: 'story', icon: '🌟', label: 'The life of a star' }],
     inside: [
       { name: 'Surface', kid: 'The glowing part we see. Hotter than any oven on Earth.', r0: 0.97, r1: 1.0, color: '#ffd36a', glow: 0.25 },
       { name: 'Bubbling layer', kid: 'Hot gas bubbles up and sinks down, like boiling soup.', r0: 0.7, r1: 0.97, color: '#f07a1a', glow: 0.2 },
@@ -72,6 +73,7 @@ export const BODIES = [
       { icon: '🐳', text: 'It is the only place we know of with plants, animals and people.' },
       { icon: '🎂', text: 'One trip around the Sun takes one year. That is one birthday!' },
     ],
+    actions: [{ id: 'sky', icon: '🌌', label: 'Tonight’s sky from home' }],
     inside: [
       { name: 'Crust', kid: 'The thin rocky skin we live on. Like the shell of an egg.', r0: 0.965, r1: 1, color: '#7c6a55' },
       { name: 'Mantle', kid: 'Very hot rock that moves slowly, like thick toothpaste.', r0: 0.546, r1: 0.965, color: '#d2582a', glow: 0.15 },

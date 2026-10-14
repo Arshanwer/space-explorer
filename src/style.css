@@ -167,6 +167,8 @@ body.loading .hud { opacity: 0; pointer-events: none; }
 .dock-orb.emoji { display: grid; place-items: center; font-size: 30px; background: radial-gradient(circle at 35% 35%, #3a4a6a, #121a2d); box-shadow: inset -6px -6px 12px rgba(0,0,0,0.5); }
 
 .dock-orb.star { box-shadow: none; background-size: 100% 100%; }
+.dock-orb.photo { background-size: cover; background-position: center; box-shadow: inset 0 0 6px 2px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.12); }
+.dock-item[aria-current="true"] .dock-orb.photo { box-shadow: inset 0 0 6px 2px rgba(0,0,0,0.55), 0 0 0 3px var(--sunbeam); }
 
 /* ---------- Zoom ladder (planets -> stars -> galaxy) ---------- */
 #ladder {
@@ -241,6 +243,7 @@ body.in-iss #ladder { display: none; }
 }
 .chip i { width: 32px; height: 32px; border-radius: 50%; background-size: 200% 100%; box-shadow: inset -6px -5px 10px rgba(0,0,0,0.6); display: block; }
 .chip:active { transform: scale(0.96); }
+.chip i.photo { background-size: cover; background-position: center; box-shadow: inset 0 0 4px 1px rgba(0,0,0,0.5); }
 .chip i.emoji { box-shadow: none; background: none; font-style: normal; font-size: 24px; display: grid; place-items: center; }
 .toggles { margin: -4px 0 18px; }
 .btn-toggle { background: rgba(255,255,255,0.08); color: var(--ice); box-shadow: inset 0 0 0 2px var(--visor-edge); font-size: 19px; }
@@ -368,3 +371,115 @@ dialog#credits li { margin-bottom: 8px; font-size: 17px; }
 
 /* automated checks run on a very slow software renderer, where CSS fades never get going */
 body.test *, body.test *::before, body.test *::after { transition: none !important; animation: none !important; }
+
+/* ---------- The life of a star ---------- */
+.story-pick { display: grid; gap: 12px; margin-top: 16px; }
+.story-path { display: flex; align-items: center; gap: 14px; justify-content: flex-start; font-size: 20px; min-height: 64px; padding: 10px 18px; text-align: left; }
+.story-path .big { font-size: 34px; line-height: 1; }
+.story-age { color: var(--sunbeam); font-weight: 600; }
+.story-text { font-size: 18px; line-height: 1.5; margin: 6px 0 4px; }
+.story-visit { font-size: 14px; opacity: 0.75; margin: -2px 0 6px; }
+.story-nav { display: flex; gap: 10px; margin: 14px 0 6px; }
+.story-nav .btn-ghost { flex: 0 0 auto; min-width: 54px; justify-content: center; }
+.story-nav .btn-ghost:disabled { opacity: 0.35; }
+.story-next { flex: 1 1 auto; justify-content: center; }
+.story-steps .chip[aria-current="true"] { background: var(--sunbeam); color: var(--sunbeam-ink); }
+.story-label {
+  font-family: var(--display); font-size: 14px; font-weight: 600; color: var(--ice); white-space: nowrap;
+  text-shadow: 0 1px 3px #000, 0 0 8px #000; pointer-events: none; transition: opacity 0.3s;
+}
+.story-label.orbit { font-size: 13px; opacity: 0.9; }
+.story-label.swallowed::after { content: ' (swallowed!)'; color: #ffb38a; }
+body.in-story #dock, body.in-story #ladder, body.in-story #fly, body.in-story #time { display: none; }
+body.in-story #home { display: inline-flex; }
+/* small upright phones: the card sheet would cover the zoom ladder, so tuck the ladder away while it's open */
+@media (max-width: 760px) and (orientation: portrait) {
+  body.card-open .rung { height: 40px; min-width: 40px; }
+  body.card-open .ladder-rungs { gap: 4px; }
+  body.card-open .rung .ico { font-size: 20px; }
+  body.card-open #scale { display: none; }
+}
+@media (max-width: 760px) and (orientation: portrait) and (max-height: 760px) { body.card-open #ladder { display: none; } }
+
+/* ---------- Tonight's sky from home ---------- */
+#skybar { left: 0; right: 0; bottom: calc(10px + var(--safe-bottom)); display: flex; justify-content: center; pointer-events: none; }
+.skybar-scroll {
+  pointer-events: auto; display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-radius: 26px;
+  max-width: calc(100vw - 24px); overflow-x: auto; scrollbar-width: none;
+  background: rgba(6, 10, 22, 0.6); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+}
+.skybar-scroll::-webkit-scrollbar { display: none; }
+.sky-clock { display: flex; flex-direction: column; align-items: flex-start; padding: 0 10px 0 6px; min-width: 112px; font-family: var(--display); color: var(--ice); white-space: nowrap; }
+.sky-when { font-size: 13px; opacity: 0.75; }
+.sky-time { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sky-btn {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 6px; min-height: 48px; padding: 6px 14px; border-radius: 24px;
+  border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.08); color: var(--ice);
+  font-family: var(--display); font-size: 16px; font-weight: 500; white-space: nowrap; cursor: pointer;
+}
+.sky-btn:active { transform: scale(0.96); }
+.sky-btn[aria-pressed="true"] { background: var(--sunbeam); color: var(--sunbeam-ink); border-color: transparent; }
+body.in-sky #dock, body.in-sky #ladder, body.in-sky #fly, body.in-sky #time { display: none; }
+body.in-sky #home { display: inline-flex; }
+.sky-label { font-size: 14px; padding: 2px 8px; }
+.sky-label::after { display: none; }
+.sky-label.compass { font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; color: #ffd27a; background: none; box-shadow: none; pointer-events: none; }
+.sky-label.place { font-size: 12px; opacity: 0.8; background: none; box-shadow: none; pointer-events: none; }
+.sky-label.pattern { font-style: italic; color: #9fc0ff; background: none; box-shadow: none; }
+.sky-label.pattern.maori { color: #ffc58a; }
+.sky-label.planet { color: #ffe7a8; }
+.sky-label.star { color: #e8eeff; background: none; box-shadow: none; font-size: 13px; }
+body.in-sky #toast { bottom: calc(96px + var(--safe-bottom)); }
+@media (max-aspect-ratio: 1/1), (max-width: 760px) { body.in-sky #toast { bottom: auto; } }
+
+/* ---------- Quick jumps, camera, photo album ---------- */
+.pill-go { background: linear-gradient(180deg, rgba(120, 170, 255, 0.35), rgba(60, 90, 180, 0.35)); }
+.snap-ico { font-size: 24px; line-height: 1; }
+#flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 45; }
+#flash.on { animation: flash 0.45s ease-out; }
+@keyframes flash { 0% { opacity: 0.85; } 100% { opacity: 0; } }
+#jumpsheet, .album { position: absolute; inset: 0; z-index: 30; display: grid; place-items: center; background: rgba(2, 4, 12, 0.55); padding: calc(16px + var(--safe-top)) 16px calc(16px + var(--safe-bottom)); }
+#jumpsheet[hidden], .album[hidden] { display: none; }
+.jump-panel, .album-panel { width: min(760px, 100%); max-height: 100%; overflow: auto; border-radius: 28px; padding: 18px 20px 22px; }
+.jump-head, .album-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.jump-head h2, .album-head h2 { font-family: var(--display); font-size: 30px; margin: 0; }
+.jump-close, .album-close { position: static; }
+.album-head { display: grid; grid-template-columns: 1fr auto; }
+.album-head .album-tabs { grid-column: 1 / -1; grid-row: 2; }
+.jump-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 12px; }
+.jump-tile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 6px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: var(--ice); font-family: var(--display); font-size: 16px; font-weight: 500; cursor: pointer; text-align: center; }
+.jump-tile:active { transform: scale(0.96); }
+.jump-orb { width: 74px; height: 74px; border-radius: 50%; background-size: cover; background-position: center; display: grid; place-items: center; font-size: 40px; box-shadow: inset 0 0 8px 2px rgba(0,0,0,0.5); background-color: #1a2440; }
+.jump-orb.planet { background-size: 200% 100%; box-shadow: inset -12px -10px 20px rgba(0,0,0,0.75), inset 4px 4px 10px rgba(255,255,255,0.18); }
+.album-tabs { display: flex; gap: 8px; }
+.album-tab { font-family: var(--display); font-size: 17px; font-weight: 500; padding: 10px 16px; min-height: 48px; border-radius: 22px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06); color: var(--ice); cursor: pointer; }
+.album-tab[aria-selected="true"] { background: var(--sunbeam); color: var(--sunbeam-ink); border-color: transparent; }
+.album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.album-item { display: flex; flex-direction: column; gap: 6px; padding: 0; border: 0; background: none; color: var(--ice); cursor: pointer; font-family: var(--body); font-size: 14px; text-align: left; min-width: 0; }
+.album-item img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 14px; background: #0b1020; }
+.album-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.album-empty, .album-intro { font-size: 18px; line-height: 1.5; color: var(--ice); }
+.missions { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.mission { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 16px; background: rgba(255,255,255,0.05); }
+.mission.done { background: rgba(255, 210, 100, 0.14); }
+.mission .m-icon { font-size: 30px; width: 40px; text-align: center; }
+.mission div { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mission b { font-family: var(--display); font-size: 18px; }
+.mission span { font-size: 15px; opacity: 0.8; }
+.mission .m-tick { font-size: 22px; opacity: 1; }
+.album-view { position: absolute; inset: 0; z-index: 31; background: rgba(2, 4, 12, 0.94); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: calc(16px + var(--safe-top)) 16px calc(16px + var(--safe-bottom)); }
+.album-view[hidden] { display: none; }
+.album-view img { max-width: 100%; max-height: 70vh; border-radius: 12px; -webkit-touch-callout: default; user-select: auto; }
+.album-view-title { font-family: var(--display); font-size: 18px; color: var(--ice); margin: 0; text-align: center; }
+.album-view-hint { font-size: 14px; opacity: 0.7; color: var(--ice); margin: 0; text-align: center; }
+.album-confirm { background: var(--visor); border: 1px solid var(--visor-edge); border-radius: 18px; padding: 14px 18px; color: var(--ice); text-align: center; }
+@media (max-width: 560px) {
+  .top-right { gap: 6px; }
+  .pill { height: 50px; }
+  .pill.round, #jump, #time, #fly { width: 50px; padding: 0; justify-content: center; }
+  .jump-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .jump-orb { width: 62px; height: 62px; font-size: 34px; }
+  .jump-tile { font-size: 14px; }
+  .jump-head h2, .album-head h2 { font-size: 24px; }
+  .album-grid { grid-template-columns: repeat(2, 1fr); }
+}

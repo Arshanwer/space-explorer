@@ -416,6 +416,61 @@ export class Galaxy {
     this.group.add(this.sparkle, this.nurseries, this.clusters);
   }
 
+  // The Milky Way from far away (beyond its neighbours): a picture of it from straight above, made
+  // once with the same ray marcher, laid flat in the galaxy's plane.
+  makeFarDisc() {
+    if (this.far || !this.ready) return this.far;
+    const S = this.touch ? 768 : 1024;
+    const rt = new THREE.WebGLRenderTarget(S, S, {
+      type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter,
+    });
+    const D = 2e6, half = 62000;
+    const cam = new THREE.PerspectiveCamera(2 * THREE.MathUtils.radToDeg(Math.atan(half / D)), 1, 1000, 1e7);
+    cam.position.copy(GC_POS).add(new THREE.Vector3(0, D, 0));
+    cam.up.set(0, 0, -1);
+    cam.lookAt(GC_POS);
+    cam.updateMatrixWorld();
+    const u = this.volMat.uniforms;
+    u.uCam.value.copy(cam.position).sub(GC_POS).multiplyScalar(0.001);
+    u.uProjInv.value.copy(cam.projectionMatrixInverse);
+    u.uCamRot.value.copy(cam.matrixWorld);
+    u.uPix.value = (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2))) / S;
+    u.uSteps.value = 96;
+    const r = this.renderer;
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(rt);
+    r.render(this.volScene, this.volCam);
+    r.setRenderTarget(prev);
+    this.cacheKey = '';
+    // plain adding (the picture's alpha is how much dust there is; its colour already has the dimming)
+    const mat = new THREE.MeshBasicMaterial({
+      map: rt.texture, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+    });
+    mat.color.setScalar(0);
+    this.far = new THREE.Mesh(new THREE.PlaneGeometry(2 * half, 2 * half), mat);
+    this.far.rotation.x = -Math.PI / 2;
+    this.far.renderOrder = 0;
+    this.far.visible = false;
+    this.farRT = rt;
+    this.group.add(this.far);
+    return this.far;
+  }
+  releaseFar() {
+    if (!this.far) return;
+    this.group.remove(this.far);
+    this.far.geometry.dispose(); this.far.material.dispose(); this.farRT.dispose();
+    this.far = null; this.farRT = null;
+  }
+  // k: how much it shows; gain: brightness (it gets brighter far out, as the "eye" adjusts)
+  setFar(k, gain = 2.2) {
+    if (k > 0.002 && !this.far) this.makeFarDisc();
+    if (!this.far) return;
+    this.far.material.color.setScalar(k * gain);
+    this.far.visible = k > 0.002;
+  }
+
   pointsFrom(pos, col, size, opts) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));

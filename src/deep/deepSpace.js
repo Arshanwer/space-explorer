@@ -11,6 +11,9 @@ import { glowTexture } from '../scene/textures.js';
 import { GalCentre } from './galcentre.js';
 import { BlackHoleLens } from './blackhole.js';
 import { M_LY, DISK_N, SKY_N, SKY_L } from './gcData.js';
+import { Photos } from './photos.js';
+import { Universe } from './universe.js';
+import { PHOTO, CLOUDS, DEEP_FIELD } from '../data/astro.js';
 
 // Deep space: everything beyond the planets, in light-years with the Sun at the middle.
 // One camera rig covers the nearest stars (a few light-years) all the way out to the whole Milky Way
@@ -21,7 +24,8 @@ export const Z_HANDOFF = Math.log10(0.004); // where the solar-system view hands
 const SUN_MIN_D = 0.9; // zooming in closer than this (ly) heads back to the planets
 const GAL_UP = new THREE.Vector3(0, 1, 0);
 // places you orbit as they are: zooming out from these doesn't drift towards the galaxy's middle
-const NO_SLIDE = new Set(['galcentre', 'nsc', 'sgra', 's2', 'lmc', 'smc', 'andromeda', 'milkyway', 'arm-ori', 'arm-per', 'arm-sct', 'arm-sgr', 'arm-out']);
+const NO_SLIDE = new Set(['galcentre', 'nsc', 'sgra', 's2', 'milkyway', 'arm-ori', 'arm-per', 'arm-sct', 'arm-sgr', 'arm-out',
+  'lmc', 'smc', 'tarantula', 'n159', 'e0102', 'andromeda', 'triangulum', 'whirlpool', 'pinwheel', 'sombrero', 'cena', 'm87', 'virgo', 'deepfield', 'localgroup']);
 // places at the very middle of the galaxy: you can zoom right in to the black hole from these
 const GC_FOCUS = new Set(['galcentre', 'nsc', 'sgra', 's2']);
 const BH_MIN_D = 8 * M_LY; // closest you can get to the black hole: 4 times the event horizon's radius
@@ -32,6 +36,7 @@ const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const slideK = (z) => smooth(3.9, 4.85, z); // how far the orbit point has slid towards the galaxy's middle
 const RUNG_Z = RUNGS.filter((r) => r.z !== undefined).map((r) => r.z);
+const MW_RUNG = RUNGS.filter((r) => r.z !== undefined).findIndex((r) => r.id === 'milkyway') + 1, MW_Z = RUNG_Z[MW_RUNG - 1];
 
 // Where the arm names sit (angle round the galaxy, measured from the Sun's direction)
 const ARM_LABEL_BETA = { 'arm-ori': 22, 'arm-per': -42, 'arm-sct': -95, 'arm-sgr': 48, 'arm-out': 40 };
@@ -43,38 +48,6 @@ function ringTexture(rgb = '255,214,110') {
   g.beginPath(); g.arc(64, 64, 50, 0, Math.PI * 2); g.stroke();
   g.strokeStyle = `rgba(${rgb},0.35)`; g.lineWidth = 16;
   g.beginPath(); g.arc(64, 64, 50, 0, Math.PI * 2); g.stroke();
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
-}
-
-// Soft blotchy cloud (the Magellanic Clouds) or a little spiral (Andromeda), painted once.
-function blobTexture(seed, spiral) {
-  const S = 256, c = document.createElement('canvas'); c.width = c.height = S;
-  const g = c.getContext('2d');
-  let s = seed; const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-  g.globalCompositeOperation = 'lighter';
-  const n = spiral ? 900 : 260;
-  for (let i = 0; i < n; i++) {
-    let x, y, rad, a;
-    if (spiral) {
-      const arm = i % 2, t = r();
-      const th = t * 3.6 + arm * Math.PI + (r() - 0.5) * 0.5;
-      const R = 10 + t * 105;
-      x = S / 2 + Math.cos(th) * R; y = S / 2 + Math.sin(th) * R;
-      rad = 4 + r() * 10; a = 0.05 + 0.08 * (1 - t);
-    } else {
-      const R = Math.pow(r(), 0.8) * 95, th = r() * Math.PI * 2;
-      x = S / 2 + Math.cos(th) * R * 1.25; y = S / 2 + Math.sin(th) * R * 0.8;
-      rad = 6 + r() * 22; a = 0.04 + r() * 0.07;
-    }
-    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
-    grd.addColorStop(0, `rgba(${spiral ? '215,205,255' : '200,215,255'},${a})`);
-    grd.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = grd; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
-  }
-  const core = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, spiral ? 40 : 30);
-  core.addColorStop(0, spiral ? 'rgba(255,236,200,0.9)' : 'rgba(225,230,255,0.35)');
-  core.addColorStop(1, 'rgba(0,0,0,0)');
-  g.fillStyle = core; g.fillRect(0, 0, S, S);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
@@ -103,7 +76,7 @@ export class DeepSpace {
     c.rotateSpeed = 0.5;
     c.zoomSpeed = 1.6;
     c.minDistance = SUN_MIN_D;
-    c.maxDistance = 4e6;
+    c.maxDistance = 6e9;
 
     // the Milky Way photo, while we are still close to home
     this.photo = makeMilkyWay(1, PHOTO_TO_DEEP);
@@ -153,23 +126,11 @@ export class DeepSpace {
     this.scene.add(this.bhMark);
     this.lens.overlay.add(this.bhMarkFront);
 
-    // neighbouring galaxies (simple painted stand-ins for now)
-    this.neighbours = [];
-    for (const [id, size, seed, spiral] of [['lmc', 32000, 11, false], ['smc', 19000, 23, false], ['andromeda', 220000, 37, true]]) {
-      const d = DEEP[id];
-      const p = galacticToDeep(d.gal[0], d.gal[1], d.gal[2]);
-      const mat = new THREE.MeshBasicMaterial({ map: blobTexture(seed, spiral), transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, opacity: 0 });
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
-      m.position.copy(p);
-      // Andromeda is tipped almost edge-on to us; the Clouds face us more
-      const los = p.clone().normalize();
-      const tilt = new THREE.Vector3().crossVectors(los, GAL_UP).normalize();
-      const normal = los.clone().applyAxisAngle(tilt, THREE.MathUtils.degToRad(spiral ? 77 : 35));
-      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
-      m.renderOrder = -5;
-      this.scene.add(m);
-      this.neighbours.push(m);
-    }
+    // real pictures of nebulae and galaxies, the Magellanic Clouds, 11,000 real galaxies and the deep field
+    this.photos = new Photos({ touch });
+    this.scene.add(this.photos.group);
+    this.universe = new Universe({ touch });
+    this.scene.add(this.universe.group);
 
     // the Southern Cross, drawn in 3D so you can watch it fall apart
     const sc = DEEP.southerncross;
@@ -216,7 +177,12 @@ export class DeepSpace {
     add('sgra', GC_POS.clone());
     add('s2', GC_POS.clone().add(this.gc.s2Pos));
     for (const a of ARM_INFO) add(a.id, armPoint(a.arm, ARM_LABEL_BETA[a.id]));
-    for (const id of ['lmc', 'smc', 'andromeda']) add(id, galacticToDeep(...DEEP[id].gal));
+    for (const id of Object.keys(PHOTO)) add(id, this.photos.items[id].pos);
+    add('crabpulsar', this.photos.items.crab.pos);
+    for (const id of Object.keys(CLOUDS)) add(id, this.photos.clouds[id].pos);
+    add('virgo', this.photos.items.m87.pos.clone().add(new THREE.Vector3(0, 1.2e6, 0)));
+    add('deepfield', this.universe.deepFieldTarget(0.02));
+    add('milkyway', GC_POS.clone());
   }
 
   placePos(id, out = new THREE.Vector3()) { return out.copy(this.places[id]?.pos ?? GC_POS); }
@@ -295,7 +261,7 @@ export class DeepSpace {
     cc.updateMatrixWorld(true);
     if (!this.galaxy.ready) this.galaxy.prepare();
     // what to show: everything out there, but not the markers and nothing near the Sun
-    const hide = [this.photo, this.here, this.bhMark, this.gc.sStars, this.gc.orbitLines, this.crossLines, this.glows, this.sunCore, this.sunGlowA, this.sunGlowB, this.stars, ...this.neighbours];
+    const hide = [this.photo, this.here, this.bhMark, this.gc.sStars, this.gc.orbitLines, this.crossLines, this.glows, this.sunCore, this.sunGlowA, this.sunGlowB, this.stars, this.photos.group, this.universe.group];
     const vis = hide.map((o) => o.visible);
     hide.forEach((o) => { o.visible = false; });
     const fade = this.galaxy.fade;
@@ -355,6 +321,9 @@ export class DeepSpace {
     this.upOverride = null; this.upOverrideOn = false; this.upOverrideK = 0;
     this.releaseEnv(); // give the graphics memory back to the planets
     this.lens.release();
+    this.photos.release();
+    this.universe.release();
+    this.galaxy.releaseFar();
   }
 
   syncControlsUp() {
@@ -387,7 +356,7 @@ export class DeepSpace {
 
   // ---------- flights ----------
   // A "powers of ten" trip: pull back until both places fit, slide over, then dive in.
-  flyTo({ target, z, dir, duration, focusId, onDone, locked = false }) {
+  flyTo({ target, z, dir, duration, focusId, onDone, locked = false, straight = false }) {
     if (this.flight?.locked) return false; // already on the way home to the planets
     this.stillControls();
     const cam = this.camera;
@@ -397,7 +366,8 @@ export class DeepSpace {
     const dir0 = cam.position.clone().sub(t0).normalize();
     const dir1 = (dir || dir0).clone().normalize();
     const sep = t0.distanceTo(target);
-    const zp = Math.max(z0, z, sep > 1e-6 ? Math.log10(sep * 1.4) : -99);
+    // (a "straight" flight glides along without pulling back first)
+    const zp = Math.max(z0, z, sep > 1e-6 && !straight ? Math.log10(sep * 1.4) : -99);
     // control point chosen so the highest point of the curve is exactly zp (no overshoot when we're
     // already high enough, e.g. diving straight in to something right in the middle of the view)
     const zc = zp + Math.sqrt(Math.max(0, (zp - z0) * (zp - z)));
@@ -463,12 +433,55 @@ export class DeepSpace {
   flyToRung(id, onDone) {
     const r = RUNGS.find((x) => x.id === id);
     if (!r || r.z === undefined) return;
+    if (this.flight?.locked) return;
+    this.crossLinesOn = false;
+    if (r.target === 'localgroup') {
+      // between us and Andromeda, looking from the side so both galaxies show
+      const m31 = this.photos.items.andromeda.pos;
+      const target = GC_POS.clone().lerp(m31, 0.42);
+      const side = new THREE.Vector3().subVectors(m31, GC_POS).cross(new THREE.Vector3(0, 1, 0)).normalize();
+      this.flyTo({ target, z: r.z + this.portraitZ, dir: this.viewDir(target, r.elev, side), focusId: 'localgroup', onDone });
+      return;
+    }
     const target = r.target === 'galcentre' ? GC_POS.clone() : new THREE.Vector3();
     // the whole galaxy: look from the Sun's side so "you are here" is near the front
     const from = r.target === 'galcentre' ? new THREE.Vector3(-1, 0, -0.42) : null;
-    if (this.flight?.locked) return;
-    this.crossLinesOn = false;
     this.flyTo({ target, z: r.z + this.portraitZ, dir: this.viewDir(target, r.elev, from), focusId: r.target === 'galcentre' ? 'galcentre' : 'sun', onDone });
+  }
+
+  // Glide right through the Hubble Ultra Deep Field, from where Hubble looks in to the far end
+  flyThroughDeepField(onDone) {
+    const u = this.universe, L = DEEP_FIELD.length;
+    const look = L * 0.3;
+    const apex = u.deepFieldApex;
+    const off = this.camera.position.clone().sub(apex);
+    const along0 = off.dot(u.dfAxis);
+    const along = THREE.MathUtils.clamp(along0, 0, L * 0.5);
+    // looking at it from the side, or already at the far end: first go back to Hubble's spot
+    if (along0 > L * 0.5 || off.addScaledVector(u.dfAxis, -along0).length() > L * 0.04 || this.camera.position.distanceTo(this.controls.target) > look * 3) {
+      this.flyTo({ target: apex.clone().addScaledVector(u.dfAxis, look), z: Math.log10(look), dir: u.dfAxis.clone().negate(), focusId: 'deepfield', onDone: () => this.flyThroughDeepField(onDone) });
+      return;
+    }
+    this.camera.position.copy(apex).addScaledVector(u.dfAxis, along);
+    this.controls.target.copy(this.camera.position).addScaledVector(u.dfAxis, look);
+    this.camera.lookAt(this.controls.target);
+    this.flyTo({ target: apex.clone().addScaledVector(u.dfAxis, L * 0.86 + look), z: Math.log10(look), dir: u.dfAxis.clone().negate(), duration: 16, focusId: 'deepfield', straight: true, onDone });
+  }
+
+  // How far back to stand so something w x h light-years fits beside the card
+  fitDistance(w, h) {
+    const vt = Math.tan(THREE.MathUtils.degToRad(50 / 2)), ht = vt * this.camera.aspect;
+    const portrait = this.camera.aspect < 1;
+    const fw = portrait ? 0.92 : 0.56, fh = portrait ? 0.5 : 0.84;
+    return Math.max(w / (2 * ht * fw), h / (2 * vt * fh));
+  }
+
+  // Look at a picture from (about) where we see it from: home, nudged a little off to one side
+  // so it's clear it isn't flat
+  photoView(pos, toSun, z, off = 0.2) {
+    const side = new THREE.Vector3().crossVectors(toSun, GAL_UP).normalize();
+    const dir = toSun.clone().addScaledVector(side, off).add(new THREE.Vector3(0, off * 0.6, 0)).normalize();
+    return { target: pos.clone(), z, dir };
   }
 
   // Visit a place: frame it so the Sun (home) is usually still in view
@@ -509,6 +522,41 @@ export class DeepSpace {
       this.crossLinesOn = false;
       this.flyTo({ target, z, dir, focusId: id, onDone });
       return def;
+    } else if (PHOTO[id] || id === 'crabpulsar') {
+      // a real picture: frame it the way the telescope saw it
+      const it = this.photos.items[id === 'crabpulsar' ? 'crab' : id];
+      const w = it.def.w;
+      const big = it.def.model === 'disc' || it.def.model === 'edge' || it.def.model === 'ball2';
+      const fit = this.fitDistance(w, w * it.def.asp) * 1.2;
+      const zz = id === 'crabpulsar' ? Math.log10(6.5) : Math.log10(fit);
+      const v = this.photoView(it.pos, it.toSun, zz, id === 'crabpulsar' ? 0.5 : big ? 0.12 : 0.16);
+      this.crossLinesOn = false;
+      this.flyTo({ ...v, focusId: id, onDone });
+      return def;
+    } else if (CLOUDS[id]) {
+      const c = this.photos.clouds[id];
+      const toSun = c.pos.clone().normalize().negate();
+      const v = this.photoView(c.pos, toSun, Math.log10(c.r * 4.2) + this.portraitZ, 0.3);
+      this.crossLinesOn = false;
+      this.flyTo({ ...v, focusId: id, onDone });
+      return def;
+    } else if (id === 'virgo') {
+      const m87 = this.photos.items.m87;
+      const v = this.photoView(m87.pos, m87.toSun, Math.log10(1.4e7) + this.portraitZ, 0.35);
+      this.crossLinesOn = false;
+      this.flyTo({ ...v, focusId: id, onDone });
+      return def;
+    } else if (id === 'deepfield') {
+      // stand where Hubble stood (in the right direction), looking into the field
+      const target = this.universe.deepFieldTarget(0.55);
+      this.crossLinesOn = false;
+      this.flyTo({ target, z: Math.log10(DEEP_FIELD.length * 0.55), dir: this.universe.dfAxis.clone().negate(), focusId: id, onDone });
+      return def;
+    } else if (id === 'milkyway') {
+      const target = GC_POS.clone();
+      this.crossLinesOn = false;
+      this.flyTo({ target, z: Math.log10(150000) + this.portraitZ, dir: this.viewDir(target, 52, new THREE.Vector3(-1, 0, -0.42)), focusId: 'galcentre', onDone });
+      return def;
     } else if (def.kind === 'star') {
       // stand a little beyond the star, looking back past it towards home, so the Sun is in view too
       const d = clamp(fromSun * 0.45, 1.6, 320);
@@ -530,8 +578,6 @@ export class DeepSpace {
       z = Math.log10(28000); dir = this.viewDir(pos, 40, new THREE.Vector3(-1, 0, -0.3));
     } else if (def.kind === 'arm') {
       z = Math.log10(42000); dir = this.viewDir(pos, 55, pos.clone().sub(GC_POS));
-    } else if (id === 'andromeda') {
-      z = Math.log10(520000); dir = pos.clone().normalize().negate().add(new THREE.Vector3(0, 0.25, 0)).normalize();
     } else {
       z = Math.log10(def.kind === 'galaxy' ? 60000 : 20000);
       dir = pos.clone().normalize().negate().add(new THREE.Vector3(0, 0.3, 0)).normalize();
@@ -633,10 +679,20 @@ export class DeepSpace {
     const zg = Math.log10(Math.max(dGC, 1e-12));
     const galK = Math.max(smooth(3.4, 4.0, z), 1 - smooth(3.3, 3.9, zg));
     if (galK > 0 && !this.galaxy.ready) this.galaxy.prepare();
-    this.galaxy.setFade(galK);
+    const farK = smooth(6.15, 6.55, zg); // far away the Milky Way becomes a flat picture of itself
+    this.galaxy.setFade(galK * (1 - farK));
+    this.farK = farK;
     this.galaxy.setPixelRatio(this.pixelRatio);
     this.galaxy.expo.uExpoMix.value = smooth(3.7, 2.5, zg); // inside the bulge: a steady, darker exposure so its stars stand out
-    for (const m of this.neighbours) m.material.opacity = 0.9 * smooth(4.1, 4.9, z);
+    // pictures of nebulae and galaxies, and the galaxies all around
+    this.photos.focusId = this.focusId === 'crabpulsar' ? 'crab' : this.focusId;
+    this.photos.pulsarFocus = this.focusId === 'crabpulsar';
+    this.photos.pixelRatio = this.pixelRatio;
+    const boost = 1 + 2.4 * smooth(5.4, 6.8, z); // far out, the "eye" adjusts so faint galaxies show
+    this.photos.update(cam, pxPerRad, photoK, dt, boost);
+    this.universe.pixelRatio = this.pixelRatio;
+    this.universe.update(cam, pxPerRad, z, boost);
+    this.galaxy.setFar(this.farK, 2.2 * boost);
 
     // the middle of the galaxy and its black hole
     if (zg < 1.5 && !this.env && this.active) this.captureEnv();
@@ -741,7 +797,7 @@ export class DeepSpace {
     const zs = RUNG_Z;
     const z = this.Z;
     // diving into the middle of the galaxy is still "the Milky Way"
-    if (GC_FOCUS.has(this.focusId) && z < zs[zs.length - 1]) return zs.length;
+    if (GC_FOCUS.has(this.focusId) && z < MW_Z) return MW_RUNG;
     if (z <= zs[0]) return clamp(1 - (zs[0] - z) / (zs[0] - Z_HANDOFF), 0, 1);
     for (let i = 0; i < zs.length - 1; i++) if (z <= zs[i + 1]) return 1 + i + (z - zs[i]) / (zs[i + 1] - zs[i]);
     return zs.length;

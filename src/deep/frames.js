@@ -60,6 +60,20 @@ export function galacticToDeep(lDeg, bDeg, dist, out = new THREE.Vector3()) {
   return galToDeep(_a, out);
 }
 
+// Right ascension/declination (J2000, degrees) and distance -> deep frame
+export function equatorialToDeep(raDeg, decDeg, dist, out = new THREE.Vector3()) {
+  const a = THREE.MathUtils.degToRad(raDeg), d = THREE.MathUtils.degToRad(decDeg);
+  _a.set(Math.cos(d) * Math.cos(a), Math.cos(d) * Math.sin(a), Math.sin(d)).multiplyScalar(dist);
+  return galToDeep(eqToGal(_a, _b), out);
+}
+// Directions on the sky around a point (deep frame): L = from us outwards, N = celestial north, E = east
+export function skyBasis(raDeg, decDeg) {
+  const L = equatorialToDeep(raDeg, decDeg, 1);
+  const N = equatorialToDeep(raDeg, decDeg + 90, 1); // a quarter turn north along the same meridian
+  const E = new THREE.Vector3().crossVectors(N, L).normalize();
+  return { L, N, E };
+}
+
 // The Milky Way photo is an all-sky picture in galactic coordinates with the centre of the
 // galaxy in the middle and the south pole at the top. On a three.js sphere a direction with
 // galactic coordinates (X,Y,Z) lands on the mesh's local (X, -Z, Y).
@@ -69,6 +83,7 @@ function photoBasis(toFrame) {
     const g = new THREE.Vector3(m[0], m[2], -m[1]); // mesh-local -> galactic
     const out = new THREE.Vector3();
     if (toFrame === 'deep') galToDeep(g, out);
+    else if (toFrame === 'eq') galToEq(g, out);
     else eqToScene(galToEq(g, _b), out);
     cols.push(out);
   }
@@ -76,3 +91,4 @@ function photoBasis(toFrame) {
 }
 export const PHOTO_TO_SCENE = photoBasis('scene');
 export const PHOTO_TO_DEEP = photoBasis('deep');
+export const PHOTO_TO_EQ = photoBasis('eq'); // J2000 equatorial (x = RA 0h, z = north pole)

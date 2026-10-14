@@ -14,7 +14,9 @@ import { makeStars, makeMilkyWay } from './scene/stars.js';
 import { Cutaway } from './scene/cutaway.js';
 import { loadingManager, setAnisotropy, acquireTex, releaseTex } from './scene/textures.js';
 import { FlyControls } from './controls/fly.js';
-import { buildDock, buildDeepDock, starOrbStyle, markDock, showCard, showInside, markLayer, showSpot, hideCard, toast, speak, stopSpeaking } from './ui/ui.js';
+import { buildDock, buildDeepDock, starOrbStyle, photoOrbStyle, orbStyle, markDock, showCard, showInside, markLayer, showSpot, hideCard, toast, speak, stopSpeaking, showStoryPick, showStoryStage, showHonest } from './ui/ui.js';
+import { STAR_PATHS } from './data/starLife.js';
+import { openAlbum, closeAlbum, isAlbumOpen, savePhoto, checkChallenges, completeChallenges } from './ui/album.js';
 import { RUNGS, DEEP, DEEP_DOCK, LIGHT_YEAR_FACT } from './data/deep.js';
 import { sceneDirToDeep } from './deep/frames.js';
 
@@ -142,11 +144,12 @@ function cardHandlers() {
     onInside: () => openInside(),
     onEnter: () => enterISS(),
     onGo: (gid) => select(gid),
+    onAction: (x) => { if (x === 'story') openStory(); else if (x === 'sky') openSky(); },
   };
 }
 
 function select(id, { duration } = {}) {
-  if (state.mode === 'iss' || state.mode === 'deep' || state.busy) return;
+  if (state.mode === 'iss' || state.mode === 'deep' || state.mode === 'story' || state.mode === 'sky' || state.busy) return;
   stopCameraTweens();
   if (state.mode === 'fly') exitFly();
   if (state.cut) closeInside(true);
@@ -200,6 +203,7 @@ function flyTo(target, duration) {
 }
 
 function goHome() {
+  if (state.mode === 'story' || state.mode === 'sky') { closeSide(); return; }
   if (state.mode === 'deep') { backToPlanets(); return; }
   if (state.mode === 'iss' || state.busy) return;
   stopCameraTweens();
@@ -347,7 +351,7 @@ fly.speedFn = spaceSpeed;
 fly.clampFn = spaceClamp;
 
 function enterFly() {
-  if (state.mode === 'iss' || state.busy) return;
+  if (state.mode === 'iss' || state.mode === 'story' || state.mode === 'sky' || state.busy) return;
   stopCameraTweens();
   if (state.cut) closeInside(true);
   state.flight = null;
@@ -508,7 +512,7 @@ const smoothstep = (a, b, x) => { const t = THREE.MathUtils.clamp((x - a) / (b -
 async function goDeep(dest = 'nearby') {
   if (state.busy) return;
   if (state.mode === 'deep') { deepGo(dest); return; }
-  if (state.mode === 'iss') return;
+  if (state.mode === 'iss' || state.mode === 'story' || state.mode === 'sky') return;
   state.busy = true;
   try {
     stopCameraTweens();
@@ -553,7 +557,7 @@ function enterDeepScene(deep) {
   $('#scale').hidden = false;
   deep.enterFromSolarSystem(dir);
   refreshBlocked();
-  buildDeepDock(DEEP_DOCK.map((id) => ({ id, name: DEEP[id].name, short: DEEP[id].short || DEEP[id].name, emoji: DEEP[id].emoji, color: deep.cssColor(id) })), deepSelect);
+  buildDeepDock(DEEP_DOCK.map((id) => ({ id, name: DEEP[id].name, short: DEEP[id].short || DEEP[id].name, emoji: DEEP[id].emoji, color: deep.cssColor(id), thumb: thumbOf(id) })), deepSelect);
 }
 
 function deepGo(dest, first) {
@@ -574,23 +578,36 @@ function deepGo(dest, first) {
   });
 }
 
+// the little round photo for a place, if it has one
+const thumbOf = (id) => (DEEP[id]?.thumb === true ? id : DEEP[id]?.thumb || null);
 function deepCard(id, def) {
   const chips = (def.chips || []).filter((c) => DEEP[c]);
   const lens = state.deep.lens;
+  const chip = (c) => {
+    if (DEEP[c].kind === 'story') return { id: c, name: DEEP[c].short, emoji: DEEP[c].emoji };
+    const t = thumbOf(c);
+    return { id: c, name: DEEP[c].short || DEEP[c].name, photo: !!t, style: t ? photoOrbStyle(t) : DEEP[c].emoji ? '' : starOrbStyle(state.deep.cssColor(c)), emoji: t ? null : DEEP[c].emoji };
+  };
   return {
     ...def, id: `deep-${id}`, chips: undefined,
     chipsTitle: def.chipsTitle || 'Close by',
-    chipItems: chips.length ? chips.map((c) => ({ id: c, name: DEEP[c].short || DEEP[c].name, style: DEEP[c].emoji ? '' : starOrbStyle(state.deep.cssColor(c)), emoji: DEEP[c].emoji })) : null,
+    chipItems: chips.length ? chips.map(chip) : null,
     actions: id === 'sgra' ? [
       { id: 'beams', icon: '🔦', label: 'Light beams', pressed: lens.beamsOn },
       { id: 'eht', icon: '📡', label: 'Telescope view', pressed: lens.ehtOn },
-    ] : null,
+    ] : def.actions || null,
   };
 }
 
 // The black hole's two experiments: shine light past it, and see it the way the telescope does
 function blackHoleAction(act, btn) {
   const deep = state.deep;
+  if (act === 'flyin') {
+    const m = 'Here we go! Each one of these is a whole galaxy. Touch the screen to stop.';
+    toast(m, 5000); if (state.voice) speak(m);
+    deep.flyThroughDeepField();
+    return;
+  }
   const lens = deep.lens;
   const other = (id) => btn.parentElement.querySelector(`[data-x="${id}"]`);
   if (act === 'beams') {
@@ -626,6 +643,7 @@ function resetBlackHole() {
 function deepSelect(id) {
   const deep = state.deep;
   if (!deep || state.mode !== 'deep' || state.busy) return;
+  if (DEEP[id]?.kind === 'story') { openStory(); return; }
   resetBlackHole();
   const def = deep.select(id);
   if (!def) return;
@@ -635,6 +653,7 @@ function deepSelect(id) {
     onGo: (g) => deepSelect(g),
     onAction: blackHoleAction,
   });
+  if (id === 'deepfield') setTimeout(() => { if (deep.cardFor === 'deepfield' && !deep.flight) toast('Every dot is a galaxy! Pinch to fly in, or tap “Fly through it”.', 6000); }, 3500);
   if (id === 'sgra' && !state.bhHinted) {
     state.bhHinted = true;
     setTimeout(() => { if (deep.cardFor === 'sgra') toast('A black hole! Drag to fly around it and watch the light bend.', 6000); }, 4000);
@@ -643,6 +662,530 @@ function deepSelect(id) {
   refreshBlocked();
   markDock(id);
   if (state.voice) speak(`${def.name}. ${def.tagline}`);
+}
+
+// ---------------- The life of a star ----------------
+// Its own little scene (loaded the first time), opened from the planets or from deep space.
+// Leaving puts you back exactly where you were (or flies you to a real example).
+const hideLabelsOf = (sc) => sc?.traverse((o) => { if (o.isCSS2DObject) o.element.style.display = 'none'; });
+
+// The two "side scenes" (the life of a star, and tonight's sky) each have their own scene.
+// Going in remembers exactly where you were; coming out puts you back (or flies to a real example).
+function leaveMainView() {
+  const deep = state.deep;
+  closeJumps(); closeAlbum();
+  if (state.mode === 'fly') exitFly(false);
+  if (state.cut) closeInside(true);
+  const from = state.mode;
+  state.sideFrom = {
+    mode: from, pos: camera.position.clone(), quat: camera.quaternion.clone(), up: camera.up.clone(),
+    fov: camera.fov, near: camera.near, far: camera.far,
+    target: (from === 'deep' ? deep.controls.target : controls.target).clone(),
+  };
+  state.flight = null;
+  controls.enabled = false;
+  if (from === 'deep') {
+    deep.flight = null; deep.controls.enabled = false; deep.cardFor = null;
+    deep.lens.enabled = false;
+    resetBlackHole();
+    hideLabelsOf(deep.scene);
+    hideLabelsOf(scene); // the planets' names were only hidden by the deep-space style
+    document.body.classList.remove('deep');
+    $('#labels').classList.remove('deep');
+    $('#scale').hidden = true;
+  } else hideLabelsOf(scene);
+  hideCard(); state.viewShift.x = state.viewShift.y = 0; camera.clearViewOffset(); markDock(null);
+}
+function backToMainView() {
+  const from = state.sideFrom;
+  const deep = state.deep;
+  hideCard(); state.viewShift.x = state.viewShift.y = 0; camera.clearViewOffset();
+  document.body.classList.remove('in-story', 'in-sky');
+  $('#home span').textContent = 'Whole solar system';
+  camera.position.copy(from.pos); camera.quaternion.copy(from.quat); camera.up.copy(from.up);
+  camera.fov = from.fov; camera.near = from.near; camera.far = from.far; camera.updateProjectionMatrix();
+  state.mode = from.mode === 'deep' ? 'deep' : 'space';
+  if (state.mode === 'deep') {
+    renderPass.scene = deep.scene;
+    document.body.classList.add('deep');
+    $('#labels').classList.add('deep');
+    $('#scale').hidden = false;
+    deep.controls.target.copy(from.target);
+    deep.syncControlsUp(); deep.stillControls();
+    deep.controls.enabled = true;
+    refreshBlocked();
+  } else {
+    renderPass.scene = scene;
+    controls.target.copy(from.target);
+    stillControls(controls);
+    controls.enabled = true;
+    updateLabelVisibility();
+  }
+}
+async function openSide(kind, start) {
+  if (state.busy || state.mode === 'iss' || state.mode === 'story' || state.mode === 'sky') return;
+  state.busy = true;
+  stopSpeaking();
+  stopCameraTweens();
+  try {
+    await fadeTo(1);
+    let side;
+    if (kind === 'story') {
+      if (!state.story) {
+        const { StarStory } = await import('./scene/starStory.js');
+        state.story = new StarStory({ renderer, camera, dom: renderer.domElement, touch: isTouch, onLayerTap: (i) => storyLayer(i) });
+      }
+      side = state.story;
+    } else {
+      if (!state.sky) {
+        const { HomeSky } = await import('./scene/homeSky.js');
+        state.sky = new HomeSky({ camera, touch: isTouch });
+      }
+      side = state.sky;
+    }
+    leaveMainView();
+    state.mode = kind;
+    document.body.classList.add(kind === 'story' ? 'in-story' : 'in-sky');
+    renderPass.scene = side.scene;
+    camera.fov = 50; camera.near = 0.01; camera.far = 30000; camera.updateProjectionMatrix();
+    side.pixelRatio = dpr;
+    $('#home span').textContent = 'Back';
+    if (kind === 'story') {
+      side.scene.add(sky);
+      side.enter();
+      if (start) storyStage(start, 0, false); else storyPick();
+    } else {
+      side.enter();
+      skyStart();
+    }
+  } catch (err) {
+    console.error(err);
+    toast(`Couldn't open ${kind === 'story' ? 'the story' : 'the sky'}. Check the internet and try again.`, 4000);
+  } finally {
+    await fadeTo(0);
+    state.busy = false;
+  }
+}
+// leave the story or the sky; `visit` = a real example to fly to afterwards
+async function closeSide(visit = null) {
+  if ((state.mode !== 'story' && state.mode !== 'sky') || state.busy) return;
+  state.busy = true;
+  stopSpeaking();
+  const kind = state.mode;
+  try {
+    await fadeTo(1);
+    if (kind === 'story') { state.story.leave(); hideLabelsOf(state.story.scene); scene.add(sky); }
+    else { skyLeave(); hideLabelsOf(state.sky.scene); }
+    backToMainView();
+  } finally {
+    await fadeTo(0);
+    state.busy = false;
+  }
+  if (!visit) return;
+  if (state.mode === 'deep') {
+    if (BODY[visit] && !DEEP[visit]) { state.afterHome = visit; backToPlanets(); } // a planet or the Moon: home first
+    else deepSelect(visit);
+  } else if (BODY[visit]) select(visit);
+  else goDeep(visit);
+}
+const openStory = (pathId = null) => openSide('story', pathId);
+const closeStory = (visit = null) => closeSide(visit);
+const openSky = () => openSide('sky');
+
+function storyPick() {
+  const st = state.story;
+  st.setStage('sun', 0, { intro: false });
+  st.storyPicking = true;
+  showStoryPick(Object.entries(STAR_PATHS).map(([id, p]) => ({ id, name: p.name, icon: p.icon })), {
+    onPath: (id) => storyStage(id, 0),
+    onClose: () => closeStory(),
+  });
+  setViewShift(true);
+  if (state.voice) speak('The life of a star. Which star’s life shall we watch?');
+}
+function storyStage(pathId, index, intro = true) {
+  const st = state.story;
+  const path = STAR_PATHS[pathId];
+  const stage = path.stages[index];
+  st.storyPicking = false;
+  state.storyPath = pathId; state.storyIndex = index;
+  st.setStage(pathId, index, { intro });
+  const otherId = pathId === 'sun' ? 'giant' : 'sun';
+  const render = () => showStoryStage({
+    pathName: path.name, index, count: path.stages.length, stage,
+    steps: path.stages.map((s) => ({ icon: s.icon, title: s.title })),
+    canSlice: !!(stage.inside || stage.honest), otherName: STAR_PATHS[otherId].name,
+  }, {
+    onAction: (x) => {
+      if (x === 'next') storyStage(pathId, index + 1);
+      else if (x === 'prev') storyStage(pathId, index - 1, false);
+      else if (x === 'other') storyStage(otherId, 0);
+      else if (x === 'read') speak(`${stage.title}. ${stage.text}`);
+      else if (x === 'visit') closeStory(stage.visit);
+      else if (x === 'slice') storySlice(stage, render);
+    },
+    onStep: (i) => storyStage(pathId, i, i === index + 1),
+    onClose: () => closeStory(),
+  });
+  render();
+  setViewShift(true);
+  if (state.voice) speak(`${stage.title}. ${stage.text}`);
+}
+function storySlice(stage, back) {
+  const st = state.story;
+  if (stage.honest) {
+    showHonest(stage.honest, { onBack: () => { stopSpeaking(); back(); } });
+    if (state.voice) speak(`${stage.honest.title}. ${stage.honest.facts.map((f) => f.text).join(' ')}`);
+    return;
+  }
+  if (!st.slice()) return;
+  const def = { name: stage.title.replace(/^(A|An) /, 'the '), inside: stage.inside };
+  state.storyLayer = -1;
+  showInside(def, {
+    onLayer: storyLayer,
+    onBack: () => { st.unslice(); stopSpeaking(); back(); },
+    onRead: () => speak(state.storyLayer >= 0 ? `${stage.inside[state.storyLayer].name}. ${stage.inside[state.storyLayer].kid}` : `There are ${stage.inside.length} layers: ${stage.inside.map((l) => l.name).join(', ')}.`),
+  });
+  if (state.voice) speak('Tap a layer to find out about it.');
+}
+function storyLayer(i) {
+  const st = state.story;
+  if (!st?.cut) return;
+  st.highlight(i);
+  markLayer(i);
+  state.storyLayer = i;
+  const l = st.stage.inside[i];
+  if (state.voice) speak(`${l.name}. ${l.kid}`);
+}
+// ---------------- Tonight's sky from home ----------------
+// New Zealand time helpers: the sky is for Newlands, Wellington, so times are shown in NZ time.
+const NZ = 'Pacific/Auckland';
+const nzOffsetMin = (d) => (Date.parse(d.toLocaleString('en-US', { timeZone: NZ })) - Date.parse(d.toLocaleString('en-US', { timeZone: 'UTC' }))) / 60000;
+const nzParts = (d) => Object.fromEntries(new Intl.DateTimeFormat('en-NZ', { timeZone: NZ, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).formatToParts(d).map((p) => [p.type, +p.value || p.value]));
+function nzAt(base, hour, minute) {
+  // that clock time on the NZ calendar day of `base` (the evening after, if `base` is in the small hours)
+  const p = nzParts(base);
+  const guess = new Date(Date.UTC(p.year, p.month - 1, p.day, hour, minute) - nzOffsetMin(base) * 60000);
+  return guess;
+}
+const nzClock = (d) => new Intl.DateTimeFormat('en-NZ', { timeZone: NZ, weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(d);
+let skyTick = 0;
+// the first properly dark moment this evening (the Sun 12 degrees below the horizon), or now if it's already dark
+function tonightTime() {
+  const sk = state.sky, now = new Date();
+  if (sk.sunAltAt(now) < -12) return now;
+  const h = nzParts(now).hour;
+  let t = h < 5 ? now : nzAt(now, 17, 0);
+  if (t < now) t = now;
+  for (let k = 0; k < 72 && sk.sunAltAt(t) > -12; k++) t = new Date(t.getTime() + 10 * 60000);
+  return t;
+}
+function skyStart() {
+  const sk = state.sky;
+  const now = new Date();
+  sk.speed = 0;
+  sk.setTime(now);
+  state.skyWhen = 'Now';
+  $('#skybar').hidden = false;
+  $('#skybar [data-sky="spin"]').setAttribute('aria-pressed', 'false');
+  let msg;
+  if (sk.isDay) {
+    // daytime: show tonight instead (the stars are hidden by sunlight)
+    sk.setTime(tonightTime());
+    state.skyWhen = 'Tonight';
+    msg = 'It’s daytime, so sunlight hides the stars. Here is the sky above your home tonight! Drag to look around.';
+  } else msg = 'This is the sky above your home in Wellington right now. Drag to look around, and tap things to find out what they are!';
+  sk.yaw = Math.PI; sk.pitch = 0.5; sk.fov = innerWidth / innerHeight < 1 ? 80 : 70;
+  updateSkyClock();
+  toast(msg, 7000);
+  if (state.voice) speak(msg);
+}
+function skyLeave() {
+  const sk = state.sky;
+  sk.speed = 0;
+  setTilt(false);
+  $('#skybar').hidden = true;
+}
+function updateSkyClock() {
+  const sk = state.sky;
+  $('#skybar .sky-when').textContent = sk.speed ? 'Speeding up' : state.skyWhen;
+  $('#skybar .sky-time').textContent = nzClock(sk.date);
+}
+function skyAction(x, btn) {
+  const sk = state.sky;
+  if (!sk || state.mode !== 'sky') return;
+  if (x === 'now') { sk.setTime(new Date()); state.skyWhen = 'Now'; }
+  else if (x === 'tonight') { const t = tonightTime(); sk.setTime(t); state.skyWhen = t - Date.now() < 60000 ? 'Now' : 'Tonight'; } else if (x === 'back1' || x === 'fwd1') { sk.setTime(new Date(sk.date.getTime() + (x === 'fwd1' ? 1 : -1) * 3600e3)); state.skyWhen = 'Then'; }
+  else if (x === 'spin') {
+    sk.speed = sk.speed ? 0 : 1800; // half an hour every second
+    btn.setAttribute('aria-pressed', String(!!sk.speed));
+    if (sk.speed) { const m = 'Watch the sky turn! The stars wheel round a spot in the south. Really that takes all night.'; toast(m, 6000); if (state.voice) speak(m); }
+    state.skyWhen = 'Then';
+  } else if (x === 'lines') { sk.showLines = !sk.showLines; btn.setAttribute('aria-pressed', String(sk.showLines)); }
+  else if (x === 'maori') {
+    sk.maori = !sk.maori; btn.setAttribute('aria-pressed', String(sk.maori));
+    if (sk.maori) { const m = 'Māori names for the stars. Māori navigators used the stars to find their way across the ocean.'; toast(m, 6000); if (state.voice) speak(m); }
+  } else if (x === 'tilt') setTilt(!state.tiltOn);
+  if (sk.speed === 0) $('#skybar [data-sky="spin"]').setAttribute('aria-pressed', 'false');
+  updateSkyClock();
+}
+document.querySelectorAll('#skybar [data-sky]').forEach((b) => b.addEventListener('click', () => skyAction(b.dataset.sky, b)));
+
+// Move the iPad to look around (needs the motion sensors; the compass lines it up with north)
+const DECLINATION = 22.9; // Wellington: compass north is about 23 degrees east of true north
+let tiltBase = null;
+const _tiltE = new THREE.Euler(), _tiltQ = new THREE.Quaternion(), Z_AXIS = new THREE.Vector3(0, 0, 1);
+const TILT_BACK = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+function onOrient(e) {
+  const sk = state.sky;
+  if (!sk || e.alpha === null) return;
+  const heading = e.webkitCompassHeading;
+  if (tiltBase === null && typeof heading === 'number') tiltBase = (360 - (heading + DECLINATION)) - e.alpha; // so alpha + base is relative to true north
+  const alpha = THREE.MathUtils.degToRad(e.alpha + (tiltBase ?? 0)) + (sk.tiltYaw || 0);
+  const beta = THREE.MathUtils.degToRad(e.beta), gamma = THREE.MathUtils.degToRad(e.gamma);
+  const orient = THREE.MathUtils.degToRad(screen.orientation?.angle ?? window.orientation ?? 0);
+  const q = sk.tiltQ ||= new THREE.Quaternion();
+  q.setFromEuler(_tiltE.set(beta, alpha, -gamma, 'YXZ'));
+  q.multiply(TILT_BACK); // the camera looks out of the back of the screen
+  q.multiply(_tiltQ.setFromAxisAngle(Z_AXIS, -orient));
+}
+async function setTilt(on) {
+  const sk = state.sky;
+  const btn = $('#skybar [data-sky="tilt"]');
+  if (!on) {
+    removeEventListener('deviceorientation', onOrient);
+    state.tiltOn = false; tiltBase = null;
+    if (sk) { if (sk.tiltQ) { const f = new THREE.Vector3(0, 0, -1).applyQuaternion(sk.tiltQ); sk.yaw = Math.atan2(f.x, -f.z); sk.pitch = THREE.MathUtils.clamp(Math.asin(f.y), -0.35, 1.56); } sk.tiltQ = null; sk.tiltYaw = 0; }
+    btn?.setAttribute('aria-pressed', 'false');
+    return;
+  }
+  try {
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      const r = await DeviceOrientationEvent.requestPermission();
+      if (r !== 'granted') throw new Error('denied');
+    }
+    if (!('ondeviceorientation' in window)) throw new Error('none');
+    addEventListener('deviceorientation', onOrient);
+    state.tiltOn = true;
+    btn?.setAttribute('aria-pressed', 'true');
+    const m = 'Hold the iPad up to the sky and move it around. Drag sideways if it needs lining up.';
+    toast(m, 6000); if (state.voice) speak(m);
+  } catch {
+    toast('This screen can’t feel which way it’s pointing here. Drag to look around instead.', 4500);
+  }
+}
+
+// Looking around the sky: drag, pinch or scroll to zoom, tap a name. The canvas keeps hold of each
+// finger (pointer capture) so a drag that ends over a name still ends properly.
+const skyPts = new Map();
+let skyPinch = 0;
+canvas.addEventListener('pointerdown', (e) => {
+  if (state.mode !== 'sky') return;
+  try { canvas.setPointerCapture(e.pointerId); } catch { /* not supported */ }
+  skyPts.set(e.pointerId, [e.clientX, e.clientY]);
+  skyPinch = 0;
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (state.mode !== 'sky' || !skyPts.has(e.pointerId)) return;
+  if (e.pointerType === 'mouse' && e.buttons === 0) { skyPts.delete(e.pointerId); return; }
+  const prev = skyPts.get(e.pointerId);
+  skyPts.set(e.pointerId, [e.clientX, e.clientY]);
+  if (skyPts.size >= 2) {
+    const [a, b] = [...skyPts.values()];
+    const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    if (skyPinch > 0 && d > 0) state.sky.zoom(skyPinch / d);
+    skyPinch = d;
+    return;
+  }
+  state.sky.drag(e.clientX - prev[0], e.clientY - prev[1]);
+});
+const endSkyPt = (e) => { skyPts.delete(e.pointerId); skyPinch = 0; };
+canvas.addEventListener('pointerup', endSkyPt);
+canvas.addEventListener('pointercancel', endSkyPt);
+canvas.addEventListener('wheel', (e) => { if (state.mode === 'sky') state.sky.zoom(Math.exp(e.deltaY * 0.001)); }, { passive: true });
+$('#labels').addEventListener('click', (e) => {
+  if (state.mode !== 'sky') return;
+  const b = e.target.closest('[data-pick]');
+  if (b) { e.stopPropagation(); skyPick(b.dataset.pick); }
+});
+
+// What's that in the sky?
+const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+function whereNow(alt, az) {
+  const when = state.skyWhen === 'Now' ? 'Right now' : 'At this time';
+  if (alt < 0) return `${when} it is below the horizon, so you can’t see it. Try another time!`;
+  const dir = COMPASS[Math.round(az / 45) % 8];
+  if (alt > 70) return `${when} it is almost straight above you!`;
+  return `${when} it is ${alt < 15 ? 'low in the' : alt < 45 ? 'up in the' : 'high in the'} ${dir}${alt < 15 ? ' (it might be behind trees or hills)' : ''}.`;
+}
+function moonPhase(m) {
+  const pct = Math.round(m.lit * 100);
+  const name = m.lit < 0.03 ? 'a new moon (almost all dark)' : m.lit > 0.97 ? 'a full moon' : Math.abs(m.lit - 0.5) < 0.06 ? (m.waxing ? 'a first quarter moon (half lit)' : 'a last quarter moon (half lit)')
+    : m.lit < 0.5 ? `a ${m.waxing ? 'growing' : 'shrinking'} crescent` : `${m.waxing ? 'growing' : 'shrinking'}, more than half lit`;
+  return `The Moon is ${name}. About ${pct}% of the side facing us is lit by the Sun.`;
+}
+function skyPick(id) {
+  const sk = state.sky;
+  if (!sk || state.mode !== 'sky' || !id) return;
+  const v = new THREE.Vector3();
+  let alt, az;
+  const at = (o) => { o.getWorldPosition(v).normalize(); alt = THREE.MathUtils.radToDeg(Math.asin(v.y)); az = (THREE.MathUtils.radToDeg(Math.atan2(v.x, -v.z)) + 360) % 360; };
+  let def, goto = null;
+  if (id === 'moon' || id === 'sun' || BODY[id]) {
+    at(id === 'moon' ? sk.moon : id === 'sun' ? sk.sun : sk.bodies[id].sprite);
+    const b = BODY[id];
+    const extra = id === 'moon' ? [{ icon: '🌓', text: moonPhase(sk.moonInfo) }] : id === 'sun' ? [{ icon: '⚠️', text: 'Never look straight at the Sun. It can hurt your eyes!' }] : [];
+    def = { ...b, inside: undefined, moons: undefined, chips: undefined, rings: undefined, facts: [{ icon: '🧭', text: whereNow(alt, az) }, ...extra, ...b.facts.slice(0, 2)], actions: [{ id: 'goto', icon: '🚀', label: `Fly to ${b.name.replace(/^The /, '')}` }] };
+    goto = id;
+  } else {
+    const lab = sk.labels.find((l) => l.o.element.dataset.pick === id);
+    if (!lab) return;
+    at(lab.o);
+    const deepId = id === 'pattern:Cru' ? 'southerncross' : id === 'matariki' || id === 'lmc' || id === 'smc' ? id
+      : Object.keys(DEEP).find((k) => DEEP[k].kind === 'star' && (DEEP[k].name === lab.en || DEEP[k].short === lab.en));
+    const where = { icon: '🧭', text: whereNow(alt, az) };
+    const mi = lab.mi && lab.mi !== lab.en ? [{ icon: '🌿', text: `Its Māori name is ${lab.mi}.` }] : [];
+    if (deepId) {
+      const d = DEEP[deepId];
+      def = { ...d, chips: undefined, picture: undefined, facts: [where, ...mi, ...d.facts.slice(0, 2)], actions: [{ id: 'goto', icon: '🚀', label: `Fly to ${d.short || d.name}` }] };
+      goto = deepId;
+    } else if (lab.kind.startsWith('pattern')) {
+      def = { kind: 'constellation', name: lab.en, tagline: lab.maoriOnly ? 'A Māori star pattern.' : 'A pattern of stars.', facts: [where, ...mi, lab.maoriOnly ? { icon: '🛶', text: 'Māori navigators used patterns like this to find their way across the ocean.' } : { icon: '✏️', text: 'Join the dots to see its shape. Its stars are really very far apart!' }] };
+    } else {
+      def = { kind: 'star', name: lab.en, tagline: 'One of the brightest stars in our sky.', facts: [where, ...mi] };
+    }
+  }
+  showCard({ ...def, id: `sky-${id}` }, {
+    onClose: () => { hideCard(); setViewShift(false); stopSpeaking(); },
+    onGo: () => {},
+    onAction: (x) => { if (x === 'goto' && goto) closeSide(goto); },
+  });
+  setViewShift(true);
+  if (state.voice) speak(`${def.name}. ${def.facts[0].text}`);
+}
+
+// ---------------- Quick jumps ----------------
+const JUMPS = [
+  { id: 'planets', label: 'Planets', orb: () => orbStyle('saturn'), planet: true },
+  { id: 'earth', label: 'Earth', orb: () => orbStyle('earth'), planet: true },
+  { id: 'sky', label: 'Tonight’s sky', emoji: '🌌' },
+  { id: 'nearby', label: 'Nearest stars', emoji: '⭐' },
+  { id: 'orion', label: 'A star nursery', orb: () => photoOrbStyle('orion') },
+  { id: 'milkyway', label: 'Our galaxy', emoji: '🌀' },
+  { id: 'sgra', label: 'The black hole', orb: () => 'background-image:url(tex/eht/sgra.jpg)' },
+  { id: 'andromeda', label: 'Andromeda', orb: () => photoOrbStyle('andromeda') },
+  { id: 'universe', label: 'Galaxies everywhere', orb: () => photoOrbStyle('whirlpool') },
+  { id: 'deepfield', label: 'Deep Field', orb: () => photoOrbStyle('hudf') },
+  { id: 'story', label: 'Life of a star', emoji: '🌟' },
+  { id: 'album', label: 'My photos', emoji: '📸' },
+];
+function buildJumps() {
+  const grid = $('#jumpsheet .jump-grid');
+  grid.innerHTML = JUMPS.map((j) => `<button class="jump-tile" data-jump="${j.id}"><span class="jump-orb${j.planet ? ' planet' : ''}" ${j.orb ? `style="${j.orb()}"` : ''} aria-hidden="true">${j.emoji || ''}</span><span>${j.label}</span></button>`).join('');
+  grid.querySelectorAll('[data-jump]').forEach((b) => b.addEventListener('click', () => jumpTo(b.dataset.jump)));
+}
+function openJumps() { if (state.mode === 'iss' || state.busy) return; buildJumps(); $('#jumpsheet').hidden = false; }
+const closeJumps = () => { $('#jumpsheet').hidden = true; };
+$('#jump').addEventListener('click', openJumps);
+$('#jumpsheet .jump-close').addEventListener('click', closeJumps);
+$('#jumpsheet').addEventListener('pointerdown', (e) => { if (e.target.id === 'jumpsheet') closeJumps(); });
+async function jumpTo(dest) {
+  closeJumps();
+  if (dest === 'album') { openAlbum(); return; }
+  if (state.busy) return;
+  if (state.mode === 'story' || state.mode === 'sky') {
+    if ((dest === 'story' && state.mode === 'story') || (dest === 'sky' && state.mode === 'sky')) return;
+    await closeSide();
+  }
+  if (dest === 'sky') { openSky(); return; }
+  if (dest === 'story') { openStory(); return; }
+  if (dest === 'planets') { if (state.mode === 'deep') backToPlanets(); else goHome(); return; }
+  if (BODY[dest]) { if (state.mode === 'deep') { state.afterHome = dest; backToPlanets(); } else select(dest); return; }
+  goDeep(dest);
+}
+
+// ---------------- The space camera ----------------
+function snapPhoto() {
+  if (state.busy || state.snapReq) return;
+  state.snapReq = true;
+  shutterSound();
+  const f = $('#flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on');
+}
+$('#snap').addEventListener('click', snapPhoto);
+$('#snap-iss').addEventListener('click', snapPhoto);
+let audioCtx = null;
+function shutterSound() {
+  try {
+    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+    const n = Math.round(audioCtx.sampleRate * 0.09);
+    const buf = audioCtx.createBuffer(1, n, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3) * (i < n * 0.4 || i > n * 0.55 ? 1 : 0.25);
+    const src = audioCtx.createBufferSource(); src.buffer = buf;
+    const g = audioCtx.createGain(); g.gain.value = 0.35;
+    src.connect(g).connect(audioCtx.destination); src.start();
+  } catch { /* no sound */ }
+}
+// what the photo is of (for its caption and the photo missions)
+function snapInfo() {
+  const deep = state.deep;
+  const ctx = { mode: state.mode, focus: state.focusId, deep: null, deepDef: null, stage: null, sees: () => false };
+  let title = 'Space', icon = '📷';
+  const KICON = { planet: '🪐', moon: '🌙', star: '☀️', dwarf: '🪐', asteroid: '🪨', craft: '🛰️', region: '🪨' };
+  if (state.mode === 'space' || state.mode === 'fly' || state.mode === 'inside') {
+    const def = state.focusId === 'belt' ? BELT : BODY[state.focusId];
+    title = def ? (state.mode === 'inside' ? `Inside ${def.name.replace(/^The /, 'the ')}` : def.name) : state.mode === 'fly' ? 'Flying through space' : 'The solar system';
+    icon = state.mode === 'inside' ? '🔍' : state.mode === 'fly' ? '🚀' : (def ? KICON[def.kind] || '🪐' : '🪐');
+  } else if (state.mode === 'iss') { title = 'Inside the Space Station'; icon = '🛰️'; }
+  else if (state.mode === 'deep' && deep) {
+    const id = deep.cardFor || deep.focusId;
+    const def = DEEP[id];
+    ctx.deep = id; ctx.deepDef = def;
+    if (def && def.kind !== 'story') { title = def.name; icon = def.emoji || (def.kind === 'star' ? '⭐' : def.kind === 'nebula' ? '🌸' : def.kind === 'galaxy' ? '🌀' : '✨'); }
+    else { const r = RUNGS[Math.round(deep.ladderPos())]; title = r ? r.name : 'Deep space'; icon = r?.icon || '✨'; }
+  } else if (state.mode === 'story' && state.story?.stage) {
+    const st = state.story.stage;
+    ctx.stage = st.look; title = st.title; icon = st.icon;
+  } else if (state.mode === 'sky' && state.sky) {
+    const sk = state.sky;
+    title = `The sky from home, ${nzClock(sk.date)}`; icon = '🌌';
+    const v = new THREE.Vector3();
+    ctx.sees = (id) => {
+      const o = id === 'moon' ? sk.moon : sk.labels.find((l) => l.o.element.dataset.pick === id)?.o;
+      if (!o) return false;
+      o.getWorldPosition(v);
+      if (v.y < 0) return false;
+      v.project(camera);
+      return v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
+    };
+  }
+  return { title, icon, ctx };
+}
+function takeSnap() {
+  state.snapReq = false;
+  const src = renderer.domElement;
+  const W = Math.min(src.width, 1600), H = Math.round((src.height * W) / src.width);
+  const strip = Math.round(Math.min(H * 0.085, W * 0.075));
+  const c = document.createElement('canvas'); c.width = W; c.height = H + strip;
+  const g = c.getContext('2d');
+  g.fillStyle = '#0b1020'; g.fillRect(0, 0, c.width, c.height);
+  g.drawImage(src, 0, 0, W, H);
+  const info = snapInfo();
+  const fs = Math.round(Math.min(strip * 0.42, W / 30));
+  g.textBaseline = 'middle';
+  g.fillStyle = '#eef4ff'; g.font = `600 ${fs}px Fredoka, system-ui, sans-serif`;
+  g.fillText(`${info.icon} ${info.title}`, fs * 0.7, H + strip / 2, W * 0.6);
+  g.textAlign = 'right'; g.fillStyle = 'rgba(238,244,255,0.65)'; g.font = `500 ${Math.round(fs * 0.7)}px Fredoka, system-ui, sans-serif`;
+  g.fillText(`${new Intl.DateTimeFormat('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date())} · Space Explorer`, W - fs * 0.7, H + strip / 2, W * 0.3);
+  const { fresh } = checkChallenges(info.ctx);
+  c.toBlob(async (blob) => {
+    if (!blob) { toast('The camera didn’t work that time. Try again!', 3000); return; }
+    await savePhoto(blob, { title: info.title, icon: info.icon, challenge: fresh[0]?.id });
+    completeChallenges(fresh);
+    const m = fresh.length ? `🏅 Photo mission done: ${fresh.map((f) => f.title).join(' and ')}!` : `📸 Saved in your photo album.`;
+    toast(m, fresh.length ? 5000 : 2500);
+    if (state.voice && fresh.length) speak(m.replace('🏅 ', ''));
+  }, 'image/jpeg', 0.9);
 }
 
 // Come home: fly back to the Sun until it's the big glow again, swap scenes, then settle on the planets
@@ -671,7 +1214,8 @@ function backToPlanets() {
       camera.lookAt(0, 0, 0);
       controls.enabled = true;
       state.busy = false;
-      goHome();
+      const next = state.afterHome; state.afterHome = null;
+      if (next) select(next); else goHome();
     },
   });
 }
@@ -865,7 +1409,8 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
   const quick = performance.now() - down.t < 450;
   down = null;
-  if (moved > 10 || !quick || state.mode === 'iss' || state.mode === 'inside') return;
+  if (state.mode === 'sky' && moved <= 10 && quick) { skyPick(state.sky.pickAt(e.clientX, e.clientY)); return; }
+  if (moved > 10 || !quick || state.mode === 'iss' || state.mode === 'inside' || state.mode === 'story' || state.mode === 'sky') return;
   if (state.mode === 'deep') {
     const id = state.deep.pickAt(e.clientX, e.clientY);
     if (id) deepSelect(id);
@@ -1022,7 +1567,30 @@ function frame() {
     fly.update(dt);
     state.iss.update(dt, t, camera);
     composer.render(dt);
+    if (state.snapReq) takeSnap();
     labelRenderer.render(state.iss.scene, camera);
+    return;
+  }
+  if (state.mode === 'sky') {
+    const sk = state.sky;
+    sk.pixelRatio = dpr;
+    sk.update(dt, t);
+    if (sk.speed && (skyTick += dt) > 0.25) { skyTick = 0; updateSkyClock(); }
+    composer.render(dt);
+    if (state.snapReq) takeSnap();
+    labelRenderer.render(sk.scene, camera);
+    return;
+  }
+  if (state.mode === 'story') {
+    const st = state.story;
+    st.pixelRatio = dpr;
+    st.update(dt, t);
+    sky.position.copy(camera.position);
+    stars.material.uniforms.twinkle.value = t * 1.5;
+    if (st.cut) st.cut.layout(camera, innerWidth, innerHeight);
+    composer.render(dt);
+    if (state.snapReq) takeSnap();
+    labelRenderer.render(st.scene, camera);
     return;
   }
   if (state.mode === 'deep') {
@@ -1034,6 +1602,7 @@ function frame() {
     updateScale(deep.viewDistance);
     composer.render(dt);
     if (deep.lens.enabled) composer.swapBuffers(); // the light-bending pass swapped them; next frame starts as usual
+    if (state.snapReq) takeSnap();
     labelRenderer.render(deep.scene, camera);
     return;
   }
@@ -1058,9 +1627,10 @@ function frame() {
   updateLabels();
   updateLadder(0);
   composer.render(dt);
+  if (state.snapReq) takeSnap();
   labelRenderer.render(scene, camera);
 }
 renderer.setAnimationLoop(frame);
 
 // handy for checking things from the browser console
-window.__space = { world, camera, controls, select, state, enterISS, leaveISS, openInside, closeInside, pickLayer, goHome, enterFly, exitFly, gsap, renderer, fly, goDeep, backToPlanets, deepSelect, loadDeep, bloom, composer };
+window.__space = { world, camera, controls, select, state, openStory, closeStory, storyStage, openSky, closeSide, skyAction, skyPick, enterISS, leaveISS, openInside, closeInside, pickLayer, goHome, enterFly, exitFly, gsap, renderer, fly, goDeep, backToPlanets, deepSelect, loadDeep, bloom, composer };

@@ -35,6 +35,28 @@ Kids' (6–8) solar-system explorer for iPad Safari. Vite + three.js 0.170 (pinn
 - Near the centre the galaxy's exposure is held fixed (`uExpoFix/uExpoMix`) so the live picture and the cube map match. "Up" turns to the disc's spin axis (`DISK_N`) below Z ≈ -3, as a pure function of Z.
 - Telescope view = radio-like emissivity, blurred to the EHT's 20 µas beam relative to the ring, EHT colour map. The card picture `public/tex/eht/sgra.jpg` was reconstructed from EHT public data (see README).
 
+## Real pictures, galaxies, deep field (src/deep/photos.js, universe.js, src/data/astro.js) — stage 3
+- Pictures come from `scripts/astro-prep.py` (sources listed in `scripts/astro-sources.json`): 3D version with sky level removed and edges/black corners faded (additive blending, so black = nothing), `sm/` 512 px version used until the thing is big on screen, `card/` as published, `thumb/` round dock pictures. Only the focused/large picture gets its full texture; everything is let go when tiny or on leaving deep space.
+- Nebulae hang in the sky plane facing the Sun, turned so galactic north is up. Past ~260 px wide they also get a cloud of dots built from the small picture (`buildCloud`, depth models bowl/cloud/shell/ball); the flat picture fades out as you look from the side or get close (it would look like a wall).
+- Disc galaxies are laid on a plane at their real tilt (position angle + inclination); UVs are worked back to the sky so the Earth view matches the photo exactly. Andromeda's texture is cut to its oval (no streaky foreground stars). Edge-on/ball galaxies are sprites rotated to keep their long axis/north fixed in space.
+- Catalogue galaxies: Celestia `galaxies.dsc`, packed 12 bytes each. Celestia's orientation = rotation⁻¹·(0,1,0) in its ecliptic frame (checked on 12 galaxies). Instanced quads: tiny ones become soft dots with a flux-ish fade, resolved spirals lie at their real tilt, ones with their own photo hand over to it.
+- Deep field: HUDF cut-outs (atlas + positions in `src/data/deepfield.json`) in a 20 Mly cone at 1.2 Gly in the real direction; from the cone's tip it is exactly the photo. Depth from faintness + redness, squeezed (said on the card).
+- Far out (Z > ~6.2 from the galaxy's middle) the Milky Way swaps to a flat picture of itself made once by the ray marcher from above (`galaxy.makeFarDisc`). Galaxies get an "eye adjusts" boost with zoom.
+
+## Life of a star (src/scene/starStory.js, src/data/starLife.js)
+- Its own scene (mode `story`), opened from the Sun's card, the deep dock or chips; leaving restores the exact camera and mode (or flies to a real example). The planets' `sky` group is borrowed while it's open. Other scenes' CSS2D labels are hidden by hand on the way in and out.
+- One star is tweened between stages; each stage is framed with the star at radius 1, and true sizes are shown by zooming out as it grows (planet paths in units of the star). "Slice it open" reuses `Cutaway` with a stand-in body.
+
+## Tonight's sky (src/scene/homeSky.js, ephemeris.js) — stage 4
+- Mode `sky`, a side scene like the story (`openSide`/`closeSide` in main.js share the save/restore code). Local frame x = east, y = up, z = south; the observer is at the origin (Newlands, −41.22, 174.81).
+- Sky things live in one group in J2000 equatorial coordinates, turned by `skyMatrix(jd, lat, lon)` (sidereal time + precession). The Moon is placed topocentrically in the local frame (it's close). Checked against astropy: < 0.08° everywhere.
+- Times are NZ time (`Pacific/Auckland` via Intl). In daytime it opens at tonight's first properly dark hour (Sun below −12°, `tonightTime`) instead. Labels are CSS2D; taps use `pickAt` or the `[data-pick]` attribute on the label.
+- Tilt-to-look: DeviceOrientation (permission needed on iOS, refused inside the claude.ai frame), webkitCompassHeading + 22.9° declination for true north, sideways drag nudges it. Untested on a device.
+
+## Camera, album, quick jumps (src/ui/album.js, src/data/challenges.js)
+- 📷 sets `state.snapReq`; the frame loop calls `takeSnap()` right after `composer.render` (the WebGL picture is only readable in the same frame). The photo gets a caption strip and goes to IndexedDB (falls back to memory). Photo missions are tested against `snapInfo().ctx`.
+- "Go to…" (`JUMPS` in main.js) closes a side scene first if needed; jumping to a planet from deep space goes via `state.afterHome`.
+
 ## Phone link (claude.ai Artifact)
 - `npm run build:link` → `dist-link/space-explorer.html` (the page) plus its files; `dist-link.json` lists what to publish next to the page.
 - That host serves only web file types and wraps the page in its own `<html>`: models ship as base64 `models/*.glb.txt` (`VITE_PACKED_MODELS=1`), no service worker, no offline files. Per publish: ≤64 MB, ≤255 files, ≤15 MB per binary, ≤16 MB per text file.

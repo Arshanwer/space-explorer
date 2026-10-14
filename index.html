@@ -37,6 +37,10 @@
         <span>Whole solar system</span>
       </button>
       <div class="top-right">
+        <button id="jump" class="pill pill-go" aria-label="Jump somewhere">
+          <span aria-hidden="true">🧭</span><span>Go to…</span>
+        </button>
+        <button id="snap" class="pill round" aria-label="Take a photo"><span aria-hidden="true" class="snap-ico">📷</span></button>
         <button id="time" class="pill" aria-label="Change how fast time goes">
           <span class="time-icon" aria-hidden="true">🐢</span><span class="time-label">Slow</span>
         </button>
@@ -96,8 +100,33 @@
     <!-- ISS interior HUD -->
     <div id="isshud" hidden>
       <button id="leave-iss" class="pill pill-sun">Back to space</button>
+      <button id="snap-iss" class="pill round" aria-label="Take a photo"><span aria-hidden="true" class="snap-ico">📷</span></button>
       <div class="iss-title">Inside the Space Station</div>
     </div>
+
+    <!-- Tonight's sky from home -->
+    <nav id="skybar" class="hud" aria-label="Tonight's sky" hidden>
+      <div class="skybar-scroll">
+        <div class="sky-clock"><span class="sky-when">Now</span><span class="sky-time"></span></div>
+        <button class="sky-btn" data-sky="now" aria-label="Right now"><span aria-hidden="true">🕒</span><span>Now</span></button>
+        <button class="sky-btn" data-sky="tonight" aria-label="Tonight, once it is dark"><span aria-hidden="true">🌙</span><span>Tonight</span></button>
+        <button class="sky-btn" data-sky="back1" aria-label="One hour earlier"><span aria-hidden="true">◀</span><span>1 hour</span></button>
+        <button class="sky-btn" data-sky="fwd1" aria-label="One hour later"><span>1 hour</span><span aria-hidden="true">▶</span></button>
+        <button class="sky-btn" data-sky="spin" aria-pressed="false" aria-label="Watch the sky turn"><span aria-hidden="true">⏩</span><span>Watch it turn</span></button>
+        <button class="sky-btn" data-sky="lines" aria-pressed="true" aria-label="Star patterns"><span aria-hidden="true">✏️</span><span>Star patterns</span></button>
+        <button class="sky-btn" data-sky="maori" aria-pressed="false" aria-label="Māori star names"><span aria-hidden="true">🌿</span><span>Māori names</span></button>
+        <button class="sky-btn" data-sky="tilt" aria-pressed="false" aria-label="Move the iPad to look around"><span aria-hidden="true">📱</span><span>Move to look</span></button>
+      </div>
+    </nav>
+
+    <!-- Quick jumps -->
+    <div id="jumpsheet" hidden>
+      <div class="jump-panel visor" role="dialog" aria-modal="true" aria-label="Where to?">
+        <header class="jump-head"><h2>Where to?</h2><button class="card-close jump-close" aria-label="Close">×</button></header>
+        <div class="jump-grid"></div>
+      </div>
+    </div>
+    <div id="flash" aria-hidden="true"></div>
 
     <div id="toast" role="status" hidden></div>
 
@@ -114,6 +143,12 @@
         <li>The shape of the Milky Way's arms: measurements by Reid and others (2019).</li>
         <li>The real picture of our black hole: made from the Event Horizon Telescope's measurements (EHT Collaboration, public data) with the telescope team's own picture-making program.</li>
         <li>The stars racing round the black hole, and its weight: the GRAVITY team (2022).</li>
+        <li>Hubble pictures (NASA and ESA): Orion Nebula (M. Robberto and the Hubble Orion Treasury Project Team), Pillars of Creation (J. Hester and P. Scowen), Mystic Mountain (M. Livio and the Hubble 20th Anniversary Team), Crab Nebula (J. Hester and A. Loll) and its middle (J. Hester and M. Weisskopf), Ring Nebula, Horsehead Nebula, Sombrero and M87 (Hubble Heritage Team, STScI/AURA), Helix Nebula (NOAO, the Hubble Helix Nebula Team, M. Meixner and T.A. Rector), N159 (ESA/Hubble, CC BY 4.0), the exploded star E0102 (J. Banovetz and D. Milisavljevic), Whirlpool Galaxy (S. Beckwith and the Hubble Heritage Team), Pinwheel Galaxy (K. Kuntz, F. Bresolin, J. Trauger, J. Mould, Y.-H. Chu and STScI, with CFHT and NOAO), Triangulum Galaxy (M. Durbin, J. Dalcanton and B.F. Williams), Centaurus A (Hubble Heritage and ESA/Hubble), and the Hubble Ultra Deep Field (S. Beckwith and the HUDF Team).</li>
+        <li>James Webb Space Telescope pictures (NASA, ESA, CSA and STScI): the Cosmic Cliffs in the Carina Nebula, the Southern Ring Nebula and the Tarantula Nebula.</li>
+        <li>The Andromeda Galaxy photo: Guillermo Ferla (Unsplash).</li>
+        <li>The first picture of a black hole (M87): made from the Event Horizon Telescope's public measurements, like the one of our own black hole.</li>
+        <li>Star patterns: Stellarium's sky cultures (the modern star figures and the Māori sky culture). Where the Sun, Moon and planets are: NASA JPL's planet elements (E.M. Standish) and Paul Schlyter's Sun and Moon method.</li>
+        <li>11,000 galaxies in their real places: Celestia's galaxy catalogue (GPL), built from W. Steinicke's Revised NGC/IC catalogue, Karachentsev and others (2004), and NASA/IPAC's NED distances.</li>
       </ul>
       <p>For family use at home.</p>
       <form method="dialog"><button class="btn btn-sun">Close</button></form>
