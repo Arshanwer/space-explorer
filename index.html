@@ -61,6 +61,18 @@
       <p class="credits-link"><button id="credits-btn" class="linkish">Where the pictures come from</button></p>
     </div>
 
+    <!-- Zoom ladder: how far out to look -->
+    <nav id="ladder" class="hud" aria-label="How far out to look">
+      <div class="ladder-main">
+        <div class="ladder-rungs"></div>
+        <div class="ladder-track" aria-hidden="true"><div class="ladder-dot"></div></div>
+      </div>
+      <div id="scale" hidden aria-live="off">
+        <span class="scale-bar" aria-hidden="true"></span>
+        <span class="scale-text"></span>
+      </div>
+    </nav>
+
     <!-- Destination dock -->
     <nav id="dock" class="hud" aria-label="Places to visit"><div class="dock-scroll"></div></nav>
 
@@ -98,6 +110,8 @@
         <li>Space Station, Hubble, Vesta, Eros, Bennu and Itokawa shapes: NASA 3D Resources.</li>
         <li>Phobos and Deimos shapes: NASA/JPL-Caltech.</li>
         <li>Stars: Yale Bright Star Catalogue. It has every star you can see with your eyes.</li>
+        <li>Stars in 3D: the HYG database by David Nash (CC BY-SA 4.0), made from the Hipparcos, Yale and Gliese catalogues.</li>
+        <li>The shape of the Milky Way's arms: measurements by Reid and others (2019).</li>
       </ul>
       <p>For family use at home.</p>
       <form method="dialog"><button class="btn btn-sun">Close</button></form>

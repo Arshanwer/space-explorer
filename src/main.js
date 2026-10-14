@@ -14,7 +14,9 @@ import { makeStars, makeMilkyWay } from './scene/stars.js';
 import { Cutaway } from './scene/cutaway.js';
 import { loadingManager, setAnisotropy, acquireTex, releaseTex } from './scene/textures.js';
 import { FlyControls } from './controls/fly.js';
-import { buildDock, markDock, showCard, showInside, markLayer, showSpot, hideCard, toast, speak, stopSpeaking } from './ui/ui.js';
+import { buildDock, buildDeepDock, starOrbStyle, markDock, showCard, showInside, markLayer, showSpot, hideCard, toast, speak, stopSpeaking } from './ui/ui.js';
+import { RUNGS, DEEP, DEEP_DOCK, LIGHT_YEAR_FACT } from './data/deep.js';
+import { sceneDirToDeep } from './deep/frames.js';
 
 const $ = (s) => document.querySelector(s);
 document.body.classList.add('loading');
@@ -69,7 +71,8 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.rotateSpeed = 0.55;
 controls.zoomSpeed = 0.9;
-controls.maxDistance = 2600;
+const HANDOFF_D = 5000; // zoom out past this and you leave the solar system for the stars
+controls.maxDistance = HANDOFF_D;
 
 const fly = new FlyControls(camera, renderer.domElement, $('#flyhud'));
 
@@ -91,6 +94,7 @@ const state = {
   voice: false,
   iss: null,
   viewShift: { x: 0, y: 0 },
+  deep: null, // deep space (stars and the Milky Way), loaded the first time you go there
 };
 
 // Stand-in "body" for the asteroid belt so the camera has something to circle around
@@ -99,6 +103,9 @@ const beltAnchor = {
   worldPos(out = new THREE.Vector3()) { return out.copy(this.group.position); },
 };
 scene.add(beltAnchor.group);
+
+// Drop any leftover drag "spin" so it can't nudge the camera once an automatic flight lands
+function stillControls(c) { c._sphericalDelta.set(0, 0, 0); c._scale = 1; }
 
 // Stop any running camera animation (so a quick tap can't leave one writing old positions)
 function stopCameraTweens() {
@@ -136,9 +143,9 @@ function cardHandlers() {
 }
 
 function select(id, { duration } = {}) {
-  if (state.mode === 'iss' || state.busy) return;
+  if (state.mode === 'iss' || state.mode === 'deep' || state.busy) return;
   stopCameraTweens();
-  if (state.mode === 'fly') exitFly(false);
+  if (state.mode === 'fly') exitFly();
   if (state.cut) closeInside(true);
   const target = id === 'belt' ? beltAnchor : world.bodies[id];
   if (!target) return;
@@ -175,6 +182,7 @@ function flyTo(target, duration) {
   }
   const dist = focusDistance(target);
   const travel = camera.position.distanceTo(end);
+  stillControls(controls);
   state.flight = {
     target, dir, dist, t: 0,
     dur: duration ?? THREE.MathUtils.clamp(1.3 + Math.log10(1 + travel) * 0.55, 1.4, 3.2),
@@ -189,6 +197,7 @@ function flyTo(target, duration) {
 }
 
 function goHome() {
+  if (state.mode === 'deep') { backToPlanets(); return; }
   if (state.mode === 'iss' || state.busy) return;
   stopCameraTweens();
   if (state.mode === 'fly') exitFly(false);
@@ -199,6 +208,7 @@ function goHome() {
   world.setHD(null);
   world.setOrbitFade(1);
   const home = { def: { kind: 'home' }, radius: 1, worldPos: (o = new THREE.Vector3()) => o.set(0, 0, 0) };
+  stillControls(controls);
   state.flight = {
     target: home, dir: new THREE.Vector3(0.25, 0.62, 0.74).normalize(), dist: 640, t: 0, dur: 2.4,
     fromPos: camera.position.clone(), fromTarget: controls.target.clone(), arc: 60,
@@ -225,7 +235,8 @@ function updateFlight(dt) {
   if (f.t >= 1) {
     state.flight = null;
     controls.enabled = true;
-    if (!state.hinted) { state.hinted = true; toast('Drag to spin around. Pinch to zoom. Tap anything to visit it.', 5000); }
+    if (f.onDone) f.onDone();
+    else if (!state.hinted) { state.hinted = true; toast('Drag to spin around. Pinch to zoom. Tap anything to visit it.', 5000); }
   }
 }
 
@@ -467,6 +478,252 @@ function onSpot(id, pos) {
   }
 }
 
+// ---------------- Deep space: the stars and the Milky Way ----------------
+// Loaded the first time it's needed (it brings ~43,000 real stars with it).
+let deepLoading = null;
+function loadDeep() {
+  if (state.deep) return Promise.resolve(state.deep);
+  if (!deepLoading) {
+    const slow = setTimeout(() => toast('Getting the stars ready…', 2500), 500);
+    deepLoading = import('./deep/deepSpace.js').then(({ DeepSpace }) => {
+      clearTimeout(slow);
+      state.deep = new DeepSpace({ renderer, camera, dom: renderer.domElement, touch: isTouch, test: TEST, onPick: (id) => deepSelect(id) });
+      state.deep.pixelRatio = dpr;
+      state.deep.warmUp();
+      return state.deep;
+    }).catch((e) => { clearTimeout(slow); deepLoading = null; throw e; });
+  }
+  return deepLoading;
+}
+
+const HOME_DIR = new THREE.Vector3(0.25, 0.62, 0.74).normalize(); // the "whole solar system" view direction
+const smoothstep = (a, b, x) => { const t = THREE.MathUtils.clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+// Leave the planets: back away until the solar system is a dot, swap to deep space (the two views
+// look the same at that moment), then carry on out to wherever we're going.
+async function goDeep(dest = 'nearby') {
+  if (state.busy) return;
+  if (state.mode === 'deep') { deepGo(dest); return; }
+  if (state.mode === 'iss') return;
+  state.busy = true;
+  try {
+    stopCameraTweens();
+    if (state.mode === 'fly') exitFly(); // looks ahead from where we are, so the flight starts smoothly
+    if (state.cut) closeInside(true);
+    hideCard(); setViewShift(false); markDock(null); stopSpeaking();
+    const deepP = loadDeep();
+    if (camera.position.distanceTo(controls.target) < HANDOFF_D * 0.97 || controls.target.lengthSq() > 1) {
+      const home = { def: { kind: 'home' }, radius: 1, worldPos: (o = new THREE.Vector3()) => o.set(0, 0, 0) };
+      const dir = camera.position.lengthSq() > 1 ? camera.position.clone().normalize() : HOME_DIR.clone();
+      state.focus = home; state.focusId = null;
+      world.setHD(null);
+      await new Promise((resolve) => {
+        stillControls(controls);
+        state.flight = { target: home, dir, dist: HANDOFF_D, t: 0, dur: 1.8, fromPos: camera.position.clone(), fromTarget: controls.target.clone(), arc: 0, onDone: resolve };
+        controls.enabled = false;
+      });
+    }
+    const deep = await deepP;
+    enterDeepScene(deep);
+    state.busy = false;
+    deepGo(dest, true);
+  } catch (err) {
+    console.error(err);
+    toast("Couldn't load the stars. Check the internet and try again.", 4000);
+    controls.enabled = true;
+  } finally {
+    state.busy = false;
+  }
+}
+
+function enterDeepScene(deep) {
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  controls.enabled = false;
+  state.flight = null;
+  state.focus = null; state.focusId = null;
+  state.mode = 'deep';
+  world.setHD(null); // put away the sharp planet maps and the detailed Space Station while we're out here
+  renderPass.scene = deep.scene;
+  document.body.classList.add('deep');
+  $('#labels').classList.add('deep');
+  $('#scale').hidden = false;
+  deep.enterFromSolarSystem(dir);
+  refreshBlocked();
+  buildDeepDock(DEEP_DOCK.map((id) => ({ id, name: DEEP[id].name, short: DEEP[id].short || DEEP[id].name, emoji: DEEP[id].emoji, color: deep.cssColor(id) })), deepSelect);
+}
+
+function deepGo(dest, first) {
+  const deep = state.deep;
+  if (!deep || state.mode !== 'deep' || state.busy) return;
+  if (dest === 'planets') { backToPlanets(); return; }
+  const rung = RUNGS.find((r) => r.id === dest);
+  if (!rung) { deepSelect(dest); return; }
+  hideCard(); setViewShift(false); markDock(null); stopSpeaking();
+  deep.cardFor = null;
+  refreshBlocked();
+  deep.flyToRung(dest, () => {
+    const msg = first && !state.lyHinted ? LIGHT_YEAR_FACT : rung.toast;
+    if (first) state.lyHinted = true;
+    toast(msg, 6000);
+    if (state.voice) speak(msg);
+  });
+}
+
+function deepCard(id, def) {
+  const chips = (def.chips || []).filter((c) => DEEP[c]);
+  return {
+    ...def, id: `deep-${id}`, chips: undefined,
+    chipsTitle: 'Close by',
+    chipItems: chips.length ? chips.map((c) => ({ id: c, name: DEEP[c].short || DEEP[c].name, style: starOrbStyle(state.deep.cssColor(c)) })) : null,
+  };
+}
+
+function deepSelect(id) {
+  const deep = state.deep;
+  if (!deep || state.mode !== 'deep' || state.busy) return;
+  const def = deep.select(id);
+  if (!def) return;
+  deep.cardFor = id;
+  showCard(deepCard(id, def), {
+    onClose: () => { hideCard(); setViewShift(false); stopSpeaking(); markDock(null); deep.cardFor = null; refreshBlocked(); },
+    onGo: (g) => deepSelect(g),
+  });
+  setViewShift(true);
+  refreshBlocked();
+  markDock(id);
+  if (state.voice) speak(`${def.name}. ${def.tagline}`);
+}
+
+// Come home: fly back to the Sun until it's the big glow again, swap scenes, then settle on the planets
+function backToPlanets() {
+  const deep = state.deep;
+  if (state.mode !== 'deep' || state.busy || !deep) return;
+  state.busy = true;
+  hideCard(); setViewShift(false); markDock(null); stopSpeaking();
+  deep.flyTo({
+    target: new THREE.Vector3(), z: deep.zHandoff, dir: sceneDirToDeep(HOME_DIR), focusId: 'sun', locked: true,
+    onDone: () => {
+      const dirScene = deep.dirToSolarSystem();
+      deep.leave();
+      state.mode = 'space';
+      renderPass.scene = scene;
+      document.body.classList.remove('deep');
+      $('#labels').classList.remove('deep');
+      $('#scale').hidden = true;
+      buildDock((id) => select(id));
+      camera.up.set(0, 1, 0);
+      camera.near = 1; camera.far = 30000; camera.updateProjectionMatrix();
+      controls.target.set(0, 0, 0);
+      camera.position.copy(dirScene).multiplyScalar(HANDOFF_D);
+      camera.lookAt(0, 0, 0);
+      controls.enabled = true;
+      state.busy = false;
+      goHome();
+    },
+  });
+}
+
+// Pinching (or scrolling) past the edge of one view carries on into the next one
+const namesBox = $('#opt-names');
+// screen areas the deep-space names keep clear of
+function refreshBlocked() {
+  const deep = state.deep;
+  if (!deep) return;
+  const rects = [];
+  for (const el of [$('#ladder'), $('#card')]) {
+    if (el.hidden || el.offsetParent === null) continue;
+    const r = el.getBoundingClientRect();
+    rects.push({ x0: r.left - 6, x1: r.right + 6, y0: r.top - 6, y1: r.bottom + 6 });
+  }
+  deep.blocked = rects;
+}
+addEventListener('resize', () => setTimeout(refreshBlocked, 50));
+const touchPts = new Map();
+let pinchAcc = 0, lastPinch = 0, wheelAcc = 0, wheelT = 0;
+function zoomIntent(dir) {
+  if (state.busy) return;
+  if (state.mode === 'space' && dir === 'out' && !state.flight && controls.enabled
+    && camera.position.distanceTo(controls.target) >= HANDOFF_D * 0.97) goDeep('nearby');
+  else if (state.mode === 'deep' && dir === 'in' && state.deep && !state.deep.flight && state.deep.focusId === 'sun'
+    && state.deep.viewDistance <= state.deep.minSunDistance * 1.05) backToPlanets();
+}
+// names floating over the picture shouldn't stop the mouse wheel from zooming
+$('#labels').addEventListener('wheel', (e) => canvas.dispatchEvent(new WheelEvent('wheel', e)), { passive: true });
+canvas.addEventListener('wheel', (e) => {
+  const now = performance.now();
+  if (now - wheelT > 800) wheelAcc = 0;
+  wheelT = now;
+  wheelAcc += e.deltaY;
+  if (wheelAcc >= 100) { wheelAcc = 0; zoomIntent('out'); } else if (wheelAcc <= -100) { wheelAcc = 0; zoomIntent('in'); }
+}, { passive: true });
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch') touchPts.set(e.pointerId, [e.clientX, e.clientY]);
+  pinchAcc = 0; lastPinch = 0;
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!touchPts.has(e.pointerId)) return;
+  touchPts.set(e.pointerId, [e.clientX, e.clientY]);
+  if (touchPts.size !== 2) return;
+  const [a, b] = [...touchPts.values()];
+  const dd = Math.hypot(a[0] - b[0], a[1] - b[1]);
+  if (lastPinch > 0) pinchAcc += Math.log(dd / lastPinch);
+  lastPinch = dd;
+  if (pinchAcc < -0.35) { pinchAcc = 0; zoomIntent('out'); } else if (pinchAcc > 0.35) { pinchAcc = 0; zoomIntent('in'); }
+});
+const endTouch = (e) => { touchPts.delete(e.pointerId); lastPinch = 0; pinchAcc = 0; };
+canvas.addEventListener('pointerup', endTouch);
+canvas.addEventListener('pointercancel', endTouch);
+
+// ---------------- The zoom ladder and the scale bar ----------------
+function buildLadder() {
+  const wrap = $('#ladder .ladder-rungs');
+  wrap.innerHTML = '';
+  for (const r of [...RUNGS].reverse()) {
+    const b = document.createElement('button');
+    b.className = 'rung';
+    b.dataset.rung = r.id;
+    b.innerHTML = `<span class="ico" aria-hidden="true">${r.icon}</span><span class="txt">${r.name}</span>`;
+    b.setAttribute('aria-label', r.id === 'planets' ? 'Back to the planets' : `Go and see the ${r.name.toLowerCase()}`);
+    b.addEventListener('click', () => (r.id === 'planets' ? (state.mode === 'deep' ? backToPlanets() : goHome()) : goDeep(r.id)));
+    wrap.appendChild(b);
+  }
+}
+let ladderCur = -1, ladderTop = '';
+function updateLadder(pos) {
+  const n = RUNGS.length - 1;
+  const top = `${((1 - THREE.MathUtils.clamp(pos, 0, n) / n) * 100).toFixed(1)}%`;
+  if (top !== ladderTop) { ladderTop = top; $('.ladder-dot').style.top = top; }
+  const cur = THREE.MathUtils.clamp(Math.round(pos), 0, n);
+  if (cur !== ladderCur) {
+    ladderCur = cur;
+    document.querySelectorAll('.rung').forEach((b) => b.setAttribute('aria-current', String(b.dataset.rung === RUNGS[cur].id)));
+  }
+}
+let scaleKey = '';
+const LY_UNITS = [
+  { per: 8766, one: 'light-hour', many: 'light-hours' }, // how far light goes in an hour
+  { per: 365.25, one: 'light-day', many: 'light-days' },
+  { per: 1, one: 'light-year', many: 'light-years' },
+];
+function updateScale(d) {
+  // how wide the picture is, in light-years, and a tidy length for the bar (1, 2 or 5 x 10^n)
+  const w = 2 * d * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
+  const pxPerLy = innerWidth / w;
+  const wantLy = 90 / pxPerLy;
+  const unit = wantLy < 0.004 ? LY_UNITS[0] : wantLy < 0.6 ? LY_UNITS[1] : LY_UNITS[2];
+  const want = wantLy * unit.per;
+  const p10 = Math.pow(10, Math.floor(Math.log10(want)));
+  let nice = p10;
+  for (const k of [1, 2, 5, 10]) if (Math.abs(Math.log((k * p10) / want)) < Math.abs(Math.log(nice / want))) nice = k * p10;
+  const px = Math.round((nice / unit.per) * pxPerLy);
+  const key = `${px}|${nice}|${unit.one}`;
+  if (key === scaleKey) return;
+  scaleKey = key;
+  $('#scale .scale-bar').style.width = `${px}px`;
+  $('#scale .scale-text').textContent = `${nice.toLocaleString('en-NZ')} ${nice === 1 ? unit.one : unit.many}`;
+}
+buildLadder();
+
 // ---------------- Names: show what matters, never let them pile up ----------------
 function updateLabelVisibility() {
   const f = state.focusId;
@@ -517,6 +774,7 @@ function updateLabels() {
   for (const b of world.list) {
     if (!b.labelEl) continue;
     let show = b.labelShouldShow && state.mode !== 'inside' && !(state.focusId === b.def.id && state.mode !== 'fly');
+    if (world.farFade > 0.4 && b.def.kind !== 'star') show = false;
     if (show) {
       const d = b.worldPos(tmpV).distanceTo(camera.position);
       if ((b.radius / d) * fovK > 0.22) show = false; // big on screen already
@@ -544,13 +802,21 @@ function updateLabels() {
 // ---------------- Tapping things in 3D ----------------
 const raycaster = new THREE.Raycaster();
 let down = null;
-renderer.domElement.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  down = { x: e.clientX, y: e.clientY, t: performance.now() };
+  if (state.mode === 'deep') state.deep?.cancelFlight(); // a touch takes over from an automatic flight
+});
 renderer.domElement.addEventListener('pointerup', (e) => {
   if (!down) return;
   const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
   const quick = performance.now() - down.t < 450;
   down = null;
   if (moved > 10 || !quick || state.mode === 'iss' || state.mode === 'inside') return;
+  if (state.mode === 'deep') {
+    const id = state.deep.pickAt(e.clientX, e.clientY);
+    if (id) deepSelect(id);
+    return;
+  }
   const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
   const hits = raycaster.intersectObjects(world.getPickables(), false);
@@ -656,6 +922,7 @@ $('#start').addEventListener('click', () => {
   controls.target.set(0, 0, 0);
   camera.lookAt(0, 0, 0);
   select('earth', { duration: 4.2 });
+  setTimeout(() => loadDeep().catch(() => {}), TEST ? 0 : 9000);
 });
 
 // ---------------- Resize and quality ----------------
@@ -668,6 +935,7 @@ function applySize() {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   stars.material.uniforms.pixelRatio.value = dpr;
+  if (state.deep) state.deep.pixelRatio = dpr;
 }
 addEventListener('resize', () => { applySize(); if (!$('#card').hidden) setViewShift(true); else applyViewShift(); });
 
@@ -703,7 +971,19 @@ function frame() {
     labelRenderer.render(state.iss.scene, camera);
     return;
   }
+  if (state.mode === 'deep') {
+    const deep = state.deep;
+    deep.update(dt);
+    deep.renderVolume(innerWidth, innerHeight, dpr);
+    deep.updateLabels(namesBox.checked);
+    updateLadder(deep.ladderPos());
+    updateScale(deep.viewDistance);
+    composer.render(dt);
+    labelRenderer.render(deep.scene, camera);
+    return;
+  }
   world.orbitScale = state.mode === 'fly' ? 0.08 : 1;
+  world.farFade = state.mode === 'fly' ? 0 : smoothstep(1700, 4700, camera.position.length());
   world.update(dt, TIME[timeIdx].speed, t);
   if (state.flight) updateFlight(dt);
   else if (state.mode === 'fly') {
@@ -721,10 +1001,11 @@ function frame() {
   stars.material.uniforms.twinkle.value = t * 1.5;
   world.updateView(camera);
   updateLabels();
+  updateLadder(0);
   composer.render(dt);
   labelRenderer.render(scene, camera);
 }
 renderer.setAnimationLoop(frame);
 
 // handy for checking things from the browser console
-window.__space = { world, camera, controls, select, state, enterISS, leaveISS, openInside, closeInside, pickLayer, goHome, enterFly, exitFly, gsap, renderer, fly };
+window.__space = { world, camera, controls, select, state, enterISS, leaveISS, openInside, closeInside, pickLayer, goHome, enterFly, exitFly, gsap, renderer, fly, goDeep, backToPlanets, deepSelect, loadDeep, bloom, composer };

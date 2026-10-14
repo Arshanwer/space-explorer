@@ -47,6 +47,8 @@ Three.js 0.170, GSAP for animation, Vite for building. No other runtime librarie
 - **Read to me** on every card, with an option to read everything out loud automatically.
 - **Real sizes** switch shows how big things truly are compared to Earth.
 - **Time** button: slow, fast or stopped.
+- **Out to the stars** (new): keep pinching out past the planets, or tap the ladder on the left, and the solar system shrinks to a dot. Then come the nearest stars (Alpha Centauri, Sirius, Barnard's Star…), the bright star neighbours (Betelgeuse, Rigel, Matariki), and finally the whole **Milky Way** with a "You are here" marker. Every star is in its real place (about 43,000 of them), so constellations change shape as you fly. Try the Southern Cross: it starts as the pattern on the flag, then falls apart when you fly around it.
+- **The Milky Way** is drawn the way astronomers have measured it: a central bar, two big arms (Scutum–Centaurus and Perseus), two smaller ones, and the little Orion Spur where the Sun lives, with dust lanes and pink star nurseries. Look at it from above, from the side, or from inside.
 
 ### Controls
 
@@ -72,6 +74,8 @@ Three.js 0.170, GSAP for animation, Vite for building. No other runtime librarie
 - Space Station, Hubble, Vesta, Eros, Bennu, Itokawa: NASA 3D Resources (public domain).
 - Phobos and Deimos shapes: NASA/JPL-Caltech.
 - Stars: Yale Bright Star Catalogue.
+- Stars in 3D: the HYG database v4.1 by David Nash (astronexus), CC BY-SA 4.0. `src/data/starsNear.js` is a derived subset made by `scripts/hyg-to-js.py` and shares that licence.
+- Milky Way arm shapes: maser parallax measurements by Reid et al. (2019), carried round the far side.
 - Fonts: Fredoka and Andika (SIL Open Font License); Andika is designed for children learning to read.
 
 ## Project layout
@@ -87,6 +91,9 @@ src/scene/belt.js        asteroid belt, close-up boulder field, dust ring
 src/scene/stars.js       real star catalogue and Milky Way
 src/controls/fly.js      joystick and drag-to-look flying
 src/ui/ui.js             cards, dock, read-aloud
+src/deep/                deep space: frames.js (how the solar system, star catalogue and galaxy line up),
+                         starfield.js (43,000 real stars), galaxy.js (the Milky Way), deepSpace.js (camera, labels, trips)
+src/data/deep.js         stars and galaxy places you can visit, with their facts; the zoom ladder
 public/tex/sd|hd         planet maps (sd loads first; hd only for what you're looking at)
 public/models            NASA models (the detailed station, iss_0 + iss_1, loads only when you visit it)
 ```

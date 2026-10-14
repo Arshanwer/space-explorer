@@ -82,6 +82,7 @@ export class World {
     this.rockField.visible = false;
     this.root.add(this.rockField);
     this.orbitScale = 1;
+    this.farFade = 0; // 0 = normal, 1 = we have zoomed right out and are leaving the solar system
   }
 
   add(def) {
@@ -244,7 +245,7 @@ export class World {
   // things that depend on where the camera is: detail levels, hiding what's too small to see
   updateView(camera) {
     const d = camera.position.length();
-    this.dust.material.uniforms.opacity.value = THREE.MathUtils.clamp((d - 140) / 380, 0, 0.55);
+    this.dust.material.uniforms.opacity.value = THREE.MathUtils.clamp((d - 140) / 380, 0, 0.55) * (1 - this.farFade);
     const ring = Math.hypot(Math.hypot(camera.position.x, camera.position.z) - kidDistance(2.7), camera.position.y);
     this.belt.visible = ring < 75;
     const k = 1 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
@@ -328,7 +329,7 @@ export class World {
     }
     // fade the orbit roads in and out smoothly
     for (const l of this.orbitLines.children) {
-      const target = l.userData.base * this.orbitOpacity;
+      const target = l.userData.base * this.orbitOpacity * (1 - this.farFade);
       l.material.opacity += (target - l.material.opacity) * Math.min(1, dt * 3);
     }
   }

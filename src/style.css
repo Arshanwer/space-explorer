@@ -166,6 +166,47 @@ body.loading .hud { opacity: 0; pointer-events: none; }
 .dock-orb.sun { box-shadow: 0 0 18px 4px rgba(255, 170, 40, 0.55); }
 .dock-orb.emoji { display: grid; place-items: center; font-size: 30px; background: radial-gradient(circle at 35% 35%, #3a4a6a, #121a2d); box-shadow: inset -6px -6px 12px rgba(0,0,0,0.5); }
 
+.dock-orb.star { box-shadow: none; background-size: 100% 100%; }
+
+/* ---------- Zoom ladder (planets -> stars -> galaxy) ---------- */
+#ladder {
+  left: calc(16px + var(--safe-left)); top: calc(88px + var(--safe-top));
+  display: flex; flex-direction: column; gap: 14px; align-items: flex-start;
+}
+.ladder-main { display: flex; gap: 10px; align-items: stretch; }
+.ladder-rungs { display: flex; flex-direction: column; gap: 8px; }
+.rung {
+  font-family: var(--display); font-weight: 500; font-size: 16px; color: var(--ice);
+  height: 52px; min-width: 52px; padding: 0 16px 0 10px; border-radius: 999px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; text-align: left;
+  background: var(--visor); border: 1px solid var(--visor-edge);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  transition: transform 0.12s ease, background 0.25s, color 0.25s;
+}
+.rung:active { transform: scale(0.95); }
+.rung .ico { font-size: 24px; width: 32px; text-align: center; line-height: 1; }
+.rung[aria-current="true"] { background: var(--sunbeam); color: var(--sunbeam-ink); border-color: transparent; }
+.rung:focus-visible { outline: 3px solid var(--sky); outline-offset: 3px; }
+.ladder-track { position: relative; width: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.14); margin: 26px 0; }
+.ladder-dot {
+  position: absolute; left: 50%; top: 100%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
+  background: var(--sunbeam); box-shadow: 0 0 12px var(--sunbeam);
+}
+#scale {
+  display: flex; flex-direction: column; gap: 6px; pointer-events: none; padding-left: 4px;
+  font-family: var(--display); font-weight: 500; font-size: 16px; text-shadow: 0 1px 4px #000, 0 0 10px #000;
+}
+.scale-bar { display: block; height: 6px; border: 2px solid var(--ice); border-top: 0; border-radius: 0 0 3px 3px; min-width: 30px; }
+body.deep #time, body.deep #fly, body.deep #home { display: none; }
+body.deep .dock-item { width: auto; min-width: 76px; padding: 2px 8px; }
+#labels.deep .label-btn:not(.deep-label), #labels:not(.deep) .deep-label { display: none !important; }
+/* in deep space the star itself is the dot, so the name just floats above it */
+.deep-label { padding-bottom: 12px; }
+.deep-label::after { display: none; }
+body.in-iss #ladder { display: none; }
+.label-btn.arm { font-size: 15px; letter-spacing: 0.03em; font-style: italic; }
+.label-btn.arm::after { display: none; }
+
 /* ---------- Info card ---------- */
 #card {
   position: absolute; z-index: 15;
@@ -291,6 +332,12 @@ dialog#credits li { margin-bottom: 8px; font-size: 17px; }
   .card-name { font-size: 38px; }
   .pill span:not([aria-hidden]) { display: none; }
   #home span { display: inline; }
+  .rung .txt { display: none; }
+  .rung { padding: 0; justify-content: center; }
+  .ladder-rungs { gap: 6px; }
+  .rung { height: 48px; min-width: 48px; }
+  .ladder-track { margin: 24px 0; }
+  #scale { font-size: 14px; }
 }
 @media (max-width: 560px) {
   .layers { grid-template-columns: 1fr; }
@@ -305,6 +352,8 @@ dialog#credits li { margin-bottom: 8px; font-size: 17px; }
   body.flying #toast, body.in-iss #toast { top: calc(160px + var(--safe-top)); }
   #home span { display: none; }
   #home { width: 56px; padding: 0; justify-content: center; }
+  /* keep messages clear of the zoom ladder down the left side */
+  #toast { left: calc(50% + 34px); max-width: calc(100vw - 96px); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }

@@ -34,24 +34,39 @@ export function orbStyle(id) {
 }
 
 // ---------- Dock ----------
-export function buildDock(onSelect) {
+function fillDock(items, onSelect) {
   const wrap = $('#dock .dock-scroll');
   wrap.innerHTML = '';
-  for (const id of DOCK) {
-    const d = id === 'belt' ? BELT : BODY[id];
+  for (const it of items) {
     const b = document.createElement('button');
     b.className = 'dock-item';
-    b.dataset.id = id;
+    b.dataset.id = it.id;
+    b.innerHTML = `${it.orb}<span class="dock-name">${it.label}</span>`;
+    b.setAttribute('aria-label', `Visit ${it.name}`);
+    b.addEventListener('click', () => onSelect(it.id));
+    wrap.appendChild(b);
+  }
+  wrap.scrollLeft = 0;
+}
+export function buildDock(onSelect) {
+  fillDock(DOCK.map((id) => {
+    const d = id === 'belt' ? BELT : BODY[id];
     let orb;
     if (id === 'iss') orb = '<span class="dock-orb emoji" aria-hidden="true">🛰️</span>';
     else if (id === 'belt') orb = '<span class="dock-orb emoji" aria-hidden="true">🪨</span>';
     else orb = `<span class="dock-orb ${id === 'sun' ? 'sun' : ''}" style="${orbStyle(id)}" aria-hidden="true"></span>`;
-    const short = { sun: 'Sun', moon: 'Moon', iss: 'Station', belt: 'Asteroids' }[id] || d.name;
-    b.innerHTML = `${orb}<span class="dock-name">${short}</span>`;
-    b.setAttribute('aria-label', `Visit ${d.name}`);
-    b.addEventListener('click', () => onSelect(id));
-    wrap.appendChild(b);
-  }
+    const label = { sun: 'Sun', moon: 'Moon', iss: 'Station', belt: 'Asteroids' }[id] || d.name;
+    return { id, name: d.name, label, orb };
+  }), onSelect);
+}
+// A glowing dot in a star's own colour, for the deep-space dock and chips
+export const starOrbStyle = (color) => `background:radial-gradient(circle at 50% 50%, #fff 0%, ${color} 34%, ${color}55 58%, transparent 72%)`;
+export function buildDeepDock(items, onSelect) {
+  fillDock(items.map((it) => ({
+    id: it.id, name: it.name, label: it.short,
+    orb: it.emoji ? `<span class="dock-orb emoji" aria-hidden="true">${it.emoji}</span>`
+      : `<span class="dock-orb star" style="${starOrbStyle(it.color)}" aria-hidden="true"></span>`,
+  })), onSelect);
 }
 export function markDock(id) {
   document.querySelectorAll('.dock-item').forEach((b) => {
@@ -62,7 +77,10 @@ export function markDock(id) {
 }
 
 // ---------- Card ----------
-const KIND = { star: 'A star', planet: 'A planet', dwarf: 'A dwarf planet', moon: 'A moon', asteroid: 'An asteroid', craft: 'A spacecraft', region: 'A place in space' };
+const KIND = {
+  star: 'A star', planet: 'A planet', dwarf: 'A dwarf planet', moon: 'A moon', asteroid: 'An asteroid', craft: 'A spacecraft',
+  region: 'A place in space', cluster: 'A star cluster', constellation: 'A star pattern', galaxy: 'A galaxy', arm: 'An arm of the Milky Way',
+};
 
 export function showCard(def, h) {
   const card = $('#card');
@@ -71,7 +89,11 @@ export function showCard(def, h) {
   const kind = def.kind === 'moon' && parent ? `A moon of ${parent.name.replace(/^The /, '')}` : KIND[def.kind];
   const facts = def.facts.map((f) => `<li><span class="ico" aria-hidden="true">${f.icon}</span><p>${f.text}</p></li>`).join('');
   const chips = def.chips || def.moons || (def.id === 'earth' ? ['moon'] : null);
-  const extraChips = def.id === 'earth' ? ['moon', 'iss', 'hubble'] : chips;
+  const extraChips = def.chipItems ? null : def.id === 'earth' ? ['moon', 'iss', 'hubble'] : chips;
+  const chipHtml = def.chipItems
+    ? `<p class="chips-title">${def.chipsTitle || 'Nearby'}</p><div class="chips">${def.chipItems.map((c) => `<button class="chip" data-go="${c.id}"><i style="${c.style}"></i>${c.name}</button>`).join('')}</div>`
+    : extraChips ? `<p class="chips-title">${def.id === 'belt' ? 'Real asteroids to visit' : def.id === 'earth' ? 'Near Earth' : 'Moons'}</p>
+      <div class="chips">${extraChips.map((id) => `<button class="chip" data-go="${id}"><i style="${id === 'iss' || id === 'hubble' ? 'background:#9aa7bd' : orbStyle(id)}"></i>${BODY[id].name.replace(/^The /, '')}</button>`).join('')}</div>` : '';
   body.innerHTML = `
     <p class="card-kind">${kind}</p>
     <h2 class="card-name">${def.name}</h2>
@@ -82,8 +104,7 @@ export function showCard(def, h) {
       ${def.inside ? '<button class="btn btn-rust" data-act="inside"><span aria-hidden="true">🔍</span> Look inside</button>' : ''}
       ${def.id === 'iss' ? '<button class="btn btn-sun" data-act="enter"><span aria-hidden="true">🚪</span> Go inside</button>' : ''}
     </div>
-    ${extraChips ? `<p class="chips-title">${def.id === 'belt' ? 'Real asteroids to visit' : def.id === 'earth' ? 'Near Earth' : 'Moons'}</p>
-      <div class="chips">${extraChips.map((id) => `<button class="chip" data-go="${id}"><i style="${id === 'iss' || id === 'hubble' ? 'background:#9aa7bd' : orbStyle(id)}"></i>${BODY[id].name.replace(/^The /, '')}</button>`).join('')}</div>` : ''}
+    ${chipHtml}
   `;
   body.querySelector('[data-act="read"]').onclick = () => speak(`${def.name}. ${def.tagline} ${def.facts.map((f) => f.text).join(' ')}`);
   body.querySelector('[data-act="inside"]')?.addEventListener('click', h.onInside);

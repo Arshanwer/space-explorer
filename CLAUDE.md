@@ -18,6 +18,15 @@ Kids' (6–8) solar-system explorer for iPad Safari. Vite + three.js 0.170 (pinn
 - `?test` URL flag: wall-clock animations and no CSS transitions, for headless screenshot checks on the software renderer.
 - Models go through `loadGLTF` (src/scene/bodies3d.js), never `gltfLoader.load` directly. Model pictures decode via `<img>` (a GLTFLoader plugin), because strict hosts refuse `fetch()` of `blob:` addresses.
 
+## Deep space (src/deep, loaded on first use)
+- Two scenes, one camera. Solar system = kid units, ecliptic frame. Deep space = light-years, Sun at 0, galactic frame (x to the centre of the Milky Way, y galactic north). `frames.js` holds the exact rotations; the Milky Way photo sphere uses them in both scenes.
+- Handoff: zoom out to `HANDOFF_D` (5000) in the solar system → `enterDeepScene` puts the deep camera at `Z_HANDOFF` (0.004 ly) along the same direction with up = ecliptic north mapped to deep. The two frames are pixel-identical at that moment (tested: 25/25 bright stars within 4 px). Up then blends to galactic north by Z ≈ -0.3 (`upForZ`, a pure function of Z so flights can be interrupted).
+- `Z` = log10(camera-to-target distance in ly). Fades are all functions of Z in `applyScale`: photo 3.35–4.05, stars 3.55–4.3, galaxy 3.4–4.0. Above Z≈3.9 the orbit target slides to the galactic centre.
+- Star brightness is computed per star on the GPU from absolute magnitude and camera distance (`starfield.js`), with gentle compression and an "eye adjusts" shift when far out. At Z_HANDOFF it equals stars.js exactly.
+- Galaxy: arms map painted once on the GPU (`ARMS_FRAG`), ray-marched into a reduced-size half-float target only when the camera moves (`cacheKey`), then composited with premultiplied "over". Auto exposure reads the smallest mip of that target; looking along the disc is capped by `uEdgeCap`. Sparkle/nursery/cluster points use the same exposure.
+- Arms follow Reid et al. 2019 near the Sun (Perseus 10.1 kpc, Sgr–Car 6.9, Scutum 5.0 at the Sun's azimuth); `armPoint()` gives label positions.
+- Kid copy for every place lives in `src/data/deep.js`. Check facts before changing numbers.
+
 ## Phone link (claude.ai Artifact)
 - `npm run build:link` → `dist-link/space-explorer.html` (the page) plus its files; `dist-link.json` lists what to publish next to the page.
 - That host serves only web file types and wraps the page in its own `<html>`: models ship as base64 `models/*.glb.txt` (`VITE_PACKED_MODELS=1`), no service worker, no offline files. Per publish: ≤64 MB, ≤255 files, ≤15 MB per binary, ≤16 MB per text file.

@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import starData from '../data/stars.json';
 import { loadTex } from './textures.js';
+import { PHOTO_TO_SCENE } from '../deep/frames.js';
 
 // Star colour from its B-V colour index (blue-white hot stars to orange cool stars).
-function bvToColor(bv) {
+export function bvToColor(bv) {
   bv = Math.max(-0.4, Math.min(2.0, bv));
   let r, g, b;
   if (bv < 0) { r = 0.62 + 0.38 * (bv + 0.4) / 0.4; g = 0.72 + 0.28 * (bv + 0.4) / 0.4; b = 1; }
@@ -61,12 +62,13 @@ export function makeStars(radius = 9000) {
   return pts;
 }
 
-export function makeMilkyWay(radius = 9500) {
+// The Milky Way photo, turned so its band lines up exactly with the real stars
+// (and with the 3D galaxy you can fly out to).
+export function makeMilkyWay(radius = 9500, orientation = PHOTO_TO_SCENE) {
   const tex = loadTex('tex/sd/stars.jpg');
   const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, depthWrite: false, transparent: true, opacity: 0.55, color: 0x8a96b8 });
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 32), mat);
-  // Tilt the galaxy band so it crosses the ecliptic at roughly the real angle (~60°)
-  m.rotation.set(THREE.MathUtils.degToRad(60.2), 0, THREE.MathUtils.degToRad(-30));
+  m.quaternion.setFromRotationMatrix(orientation);
   m.renderOrder = -2;
   return m;
 }
