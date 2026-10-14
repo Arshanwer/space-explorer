@@ -27,6 +27,14 @@ Kids' (6–8) solar-system explorer for iPad Safari. Vite + three.js 0.170 (pinn
 - Arms follow Reid et al. 2019 near the Sun (Perseus 10.1 kpc, Sgr–Car 6.9, Scutum 5.0 at the Sun's azimuth); `armPoint()` gives label positions.
 - Kid copy for every place lives in `src/data/deep.js`. Check facts before changing numbers.
 
+## Galactic centre and black hole (src/deep/galcentre.js, gcData.js, blackhole.js, photonTable.js)
+- Everything near Sgr A* lives in groups placed at `GC_POS` with small local coordinates, so it stays precise when the camera is light-minutes from the hole (the camera itself is in doubles). Shaders there use `modelViewMatrix`, never world positions. Rays from `uProjInv` go through the near plane (z = -1): with near = 1e-7 the far-plane maths collapses in float32.
+- Units next to the hole: M = G·mass/c² (`M_LY`); event horizon at 2M. Mass 4.297e6 Suns, S-star orbits from GRAVITY 2022 (table in gcData.js; others are made-up but plausible). Sky directions at the centre (`SKY_N/E/L`) turn orbital elements into 3D.
+- Light bending is a post pass (`BlackHoleLens`, inserted after the RenderPass): for each pixel it finds the photon's plane, looks the path up in `photonTable.js` tables (u(ψ) and ψ(u) for 512 impact parameters, built once in ~0.1 s; exact closest approach from the cubic), shades disc crossings (Doppler + gravity shift, g³) and samples the background either from this frame's picture (if the bent direction is on screen) or from a cube map taken at the centre (`captureEnv`, released on leaving). Far rays (b > 400) use a first-order formula. Validated against direct integration (≤ 1 px).
+- The scene is drawn into the composer's `renderTarget2` (its starting readBuffer, MSAA). The pass writes into `renderTarget1` (made non-MSAA in main.js, unused otherwise) and swaps; main.js swaps back after `composer.render` so every frame starts in the MSAA buffer. `renderer.compile` only matches the real shaders if a render target is bound (see `warmUp`). A render target's scissor is applied when it's bound, so set it before `setRenderTarget`.
+- Near the centre the galaxy's exposure is held fixed (`uExpoFix/uExpoMix`) so the live picture and the cube map match. "Up" turns to the disc's spin axis (`DISK_N`) below Z ≈ -3, as a pure function of Z.
+- Telescope view = radio-like emissivity, blurred to the EHT's 20 µas beam relative to the ring, EHT colour map. The card picture `public/tex/eht/sgra.jpg` was reconstructed from EHT public data (see README).
+
 ## Phone link (claude.ai Artifact)
 - `npm run build:link` → `dist-link/space-explorer.html` (the page) plus its files; `dist-link.json` lists what to publish next to the page.
 - That host serves only web file types and wraps the page in its own `<html>`: models ship as base64 `models/*.glb.txt` (`VITE_PACKED_MODELS=1`), no service worker, no offline files. Per publish: ≤64 MB, ≤255 files, ≤15 MB per binary, ≤16 MB per text file.

@@ -8,6 +8,9 @@ import { Galaxy, ARM_INFO, armPoint } from './galaxy.js';
 import { GC_POS, PHOTO_TO_DEEP, sceneDirToDeep, deepDirToScene, galacticToDeep } from './frames.js';
 import { makeMilkyWay } from '../scene/stars.js';
 import { glowTexture } from '../scene/textures.js';
+import { GalCentre } from './galcentre.js';
+import { BlackHoleLens } from './blackhole.js';
+import { M_LY, DISK_N, SKY_N, SKY_L } from './gcData.js';
 
 // Deep space: everything beyond the planets, in light-years with the Sun at the middle.
 // One camera rig covers the nearest stars (a few light-years) all the way out to the whole Milky Way
@@ -18,7 +21,11 @@ export const Z_HANDOFF = Math.log10(0.004); // where the solar-system view hands
 const SUN_MIN_D = 0.9; // zooming in closer than this (ly) heads back to the planets
 const GAL_UP = new THREE.Vector3(0, 1, 0);
 // places you orbit as they are: zooming out from these doesn't drift towards the galaxy's middle
-const NO_SLIDE = new Set(['galcentre', 'lmc', 'smc', 'andromeda', 'milkyway', 'arm-ori', 'arm-per', 'arm-sct', 'arm-sgr', 'arm-out']);
+const NO_SLIDE = new Set(['galcentre', 'nsc', 'sgra', 's2', 'lmc', 'smc', 'andromeda', 'milkyway', 'arm-ori', 'arm-per', 'arm-sct', 'arm-sgr', 'arm-out']);
+// places at the very middle of the galaxy: you can zoom right in to the black hole from these
+const GC_FOCUS = new Set(['galcentre', 'nsc', 'sgra', 's2']);
+const BH_MIN_D = 8 * M_LY; // closest you can get to the black hole: 4 times the event horizon's radius
+export const BH_VIEW_D = 34 * M_LY; // where a visit to the black hole stops
 const clamp = THREE.MathUtils.clamp;
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion();
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -29,12 +36,12 @@ const RUNG_Z = RUNGS.filter((r) => r.z !== undefined).map((r) => r.z);
 // Where the arm names sit (angle round the galaxy, measured from the Sun's direction)
 const ARM_LABEL_BETA = { 'arm-ori': 22, 'arm-per': -42, 'arm-sct': -95, 'arm-sgr': 48, 'arm-out': 40 };
 
-function ringTexture() {
+function ringTexture(rgb = '255,214,110') {
   const c = document.createElement('canvas'); c.width = c.height = 128;
   const g = c.getContext('2d');
-  g.strokeStyle = 'rgba(255,214,110,1)'; g.lineWidth = 7;
+  g.strokeStyle = `rgba(${rgb},1)`; g.lineWidth = 7;
   g.beginPath(); g.arc(64, 64, 50, 0, Math.PI * 2); g.stroke();
-  g.strokeStyle = 'rgba(255,214,110,0.35)'; g.lineWidth = 16;
+  g.strokeStyle = `rgba(${rgb},0.35)`; g.lineWidth = 16;
   g.beginPath(); g.arc(64, 64, 50, 0, Math.PI * 2); g.stroke();
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
@@ -126,6 +133,26 @@ export class DeepSpace {
     this.galaxy = new Galaxy(renderer, { mapSize: test ? 1024 : touch ? 1536 : 2048, touch });
     this.scene.add(this.galaxy.group);
 
+    // its middle: the star city, the dusty ring, the S-stars, and the black hole's light-bending
+    this.gc = new GalCentre({ touch });
+    this.scene.add(this.gc.group);
+    this.lens = new BlackHoleLens({ touch });
+    this.lens.camera = camera;
+    this.lens.overlayGC.add(this.gc.sStarsFront);
+    this.env = null;
+    this.upOverride = null; // e.g. "north up" for the telescope view
+    this.upOverrideOn = false;
+    this.upOverrideK = 0;
+    // a ring that shows where the black hole is while it's still far too small to see
+    const mk = () => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTexture('205,190,255'), depthTest: false, depthWrite: false, transparent: true, blending: THREE.AdditiveBlending, opacity: 0 }));
+      s.position.copy(GC_POS); s.renderOrder = 6; s.visible = false; return s;
+    };
+    this.bhMark = mk();
+    this.bhMarkFront = mk();
+    this.scene.add(this.bhMark);
+    this.lens.overlay.add(this.bhMarkFront);
+
     // neighbouring galaxies (simple painted stand-ins for now)
     this.neighbours = [];
     for (const [id, size, seed, spiral] of [['lmc', 32000, 11, false], ['smc', 19000, 23, false], ['andromeda', 220000, 37, true]]) {
@@ -185,11 +212,18 @@ export class DeepSpace {
     DEEP.southerncross.stars.forEach((s) => cross.add(starPosition(this.data, s)));
     add('southerncross', cross.divideScalar(DEEP.southerncross.stars.length));
     add('galcentre', GC_POS.clone());
+    add('nsc', GC_POS.clone().add(new THREE.Vector3(0, 7, 0)));
+    add('sgra', GC_POS.clone());
+    add('s2', GC_POS.clone().add(this.gc.s2Pos));
     for (const a of ARM_INFO) add(a.id, armPoint(a.arm, ARM_LABEL_BETA[a.id]));
     for (const id of ['lmc', 'smc', 'andromeda']) add(id, galacticToDeep(...DEEP[id].gal));
   }
 
   placePos(id, out = new THREE.Vector3()) { return out.copy(this.places[id]?.pos ?? GC_POS); }
+  // the telescope view: from Earth's side, north up, close enough that the ring fills the middle
+  get skyNorth() { return SKY_N; }
+  get earthDir() { return SKY_L.clone().negate(); }
+  get ehtViewD() { return 30 * M_LY; }
   get zHandoff() { return Z_HANDOFF; }
   get minSunDistance() { return Math.min(SUN_MIN_D, this.controls.minDistance); }
 
@@ -233,7 +267,75 @@ export class DeepSpace {
     this.galaxy.render(cam, 64, 48, 1);
     this.galaxy.setFade(0);
     this.galaxy.cacheKey = '';
-    this.renderer.compile(this.scene, cam);
+    // Everything here draws into off-screen pictures first (the glow effect's buffers), and three.js
+    // builds a different version of each shader for that, so compile with one of those bound.
+    const r = this.renderer;
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(this.lens.lensRT);
+    r.compile(this.scene, cam);
+    // the black hole's shaders are big: get them ready now too
+    const tmp = new THREE.Scene();
+    for (const m of [this.lens.lensMat, this.lens.compMat, this.lens.diskMat]) tmp.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), m));
+    r.compile(tmp, cam);
+    r.compile(this.lens.overlay, cam);
+    r.setRenderTarget(prev);
+  }
+
+  // A 360° picture of the sky as seen from the black hole, for light that gets bent right round.
+  // Taken once (when you first head for the middle of the galaxy), thrown away when you go home.
+  captureEnv() {
+    if (this.env) return;
+    const r = this.renderer;
+    const size = this.touch ? 384 : 512;
+    const rt = new THREE.WebGLCubeRenderTarget(size, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
+    const cc = new THREE.CubeCamera(0.002, 6e6, rt);
+    cc.position.copy(GC_POS);
+    cc.coordinateSystem = r.coordinateSystem;
+    cc.updateCoordinateSystem();
+    cc.updateMatrixWorld(true);
+    if (!this.galaxy.ready) this.galaxy.prepare();
+    // what to show: everything out there, but not the markers and nothing near the Sun
+    const hide = [this.photo, this.here, this.bhMark, this.gc.sStars, this.gc.orbitLines, this.crossLines, this.glows, this.sunCore, this.sunGlowA, this.sunGlowB, this.stars, ...this.neighbours];
+    const vis = hide.map((o) => o.visible);
+    hide.forEach((o) => { o.visible = false; });
+    const fade = this.galaxy.fade;
+    this.galaxy.setFade(1);
+    const ex = this.galaxy.expo;
+    const mix0 = ex.uExpoMix.value;
+    ex.uExpoMix.value = 1;
+    const nu = this.gc.nsc.material.uniforms;
+    const nsc0 = [nu.uFade.value, nu.uGamma.value, nu.uShift.value, this.gc.nsc.visible];
+    nu.uFade.value = 1; nu.uGamma.value = 0.78; nu.uShift.value = 3.4;
+    this.gc.nsc.visible = true;
+    const clouds = [this.gc.cndGlow, this.gc.cndDust];
+    const cl0 = clouds.map((p) => [p.visible, p.material.uniforms.uFade.value, p.material.uniforms.uProjScale.value]);
+    clouds.forEach((p) => { p.visible = true; p.material.uniforms.uFade.value = 0.35; p.material.uniforms.uProjScale.value = size * 0.5; });
+    const prev = r.getRenderTarget();
+    const oldAuto = r.autoClear;
+    r.autoClear = true;
+    cc.children.forEach((cam, i) => {
+      this.galaxy.render(cam, size, size, 1);
+      rt.texture.generateMipmaps = i === 5;
+      r.setRenderTarget(rt, i);
+      r.render(this.scene, cam);
+    });
+    r.setRenderTarget(prev);
+    r.autoClear = oldAuto;
+    // put everything back the way it was
+    hide.forEach((o, i) => { o.visible = vis[i]; });
+    this.galaxy.setFade(fade);
+    this.galaxy.cacheKey = '';
+    ex.uExpoMix.value = mix0;
+    [nu.uFade.value, nu.uGamma.value, nu.uShift.value, this.gc.nsc.visible] = nsc0;
+    clouds.forEach((p, i) => { p.visible = cl0[i][0]; p.material.uniforms.uFade.value = cl0[i][1]; p.material.uniforms.uProjScale.value = cl0[i][2]; });
+    this.env = rt;
+    this.lens.setEnv(rt.texture, size);
+  }
+  releaseEnv() {
+    if (!this.env) return;
+    this.env.dispose();
+    this.env = null;
+    this.lens.setEnv(null, 1);
   }
   // direction (solar-system frame) the camera is looking from, for handing back
   dirToSolarSystem() {
@@ -248,6 +350,11 @@ export class DeepSpace {
     this.controls.enabled = false;
     this.crossLines.material.opacity = 0;
     this.camera.up.set(0, 1, 0);
+    this.lens.enabled = false;
+    this.lens.setBeams(false); this.lens.setEht(false); this.lens.eht = 0; this.lens.beamFade = 0;
+    this.upOverride = null; this.upOverrideOn = false; this.upOverrideK = 0;
+    this.releaseEnv(); // give the graphics memory back to the planets
+    this.lens.release();
   }
 
   syncControlsUp() {
@@ -261,7 +368,13 @@ export class DeepSpace {
   // so nothing ever rolls suddenly (even if a flight is interrupted).
   upFor(z, target, out = new THREE.Vector3()) {
     const w = (1 - smooth(Z_HANDOFF + 0.15, -0.3, z)) * clamp(1 - target.length() / 0.2, 0, 1);
-    return out.copy(GAL_UP).lerp(this.handoffUp, w).normalize();
+    out.copy(GAL_UP).lerp(this.handoffUp, w);
+    // right next to the black hole, "up" turns to the spin axis of its glowing disc, so the disc
+    // looks level and you circle round it
+    const nearGC = clamp(1 - target.distanceTo(GC_POS) / 0.01, 0, 1);
+    if (nearGC > 0) out.normalize().lerp(DISK_N, smooth(-2.6, -3.6, z) * nearGC);
+    if (this.upOverride && this.upOverrideK > 0) out.normalize().lerp(this.upOverride, this.upOverrideK);
+    return out.normalize();
   }
   get slides() { return !NO_SLIDE.has(this.focusId); }
 
@@ -285,10 +398,12 @@ export class DeepSpace {
     const dir1 = (dir || dir0).clone().normalize();
     const sep = t0.distanceTo(target);
     const zp = Math.max(z0, z, sep > 1e-6 ? Math.log10(sep * 1.4) : -99);
-    const zc = 2 * zp - 0.5 * (z0 + z);
+    // control point chosen so the highest point of the curve is exactly zp (no overshoot when we're
+    // already high enough, e.g. diving straight in to something right in the middle of the view)
+    const zc = zp + Math.sqrt(Math.max(0, (zp - z0) * (zp - z)));
     const travel = Math.abs(zp - z0) + Math.abs(zp - z);
     this.flight = {
-      t: 0, dur: duration ?? clamp(2.0 + travel * 0.42, 2.2, 6.5),
+      t: 0, dur: duration ?? clamp(2.0 + travel * 0.42, 2.2, travel > 11 ? 8.5 : 6.5),
       t0, t1: target.clone(), z0, z1: z, zc, q: new THREE.Quaternion().setFromUnitVectors(dir0, dir1), dir0,
       onDone, locked,
     };
@@ -304,7 +419,7 @@ export class DeepSpace {
     const t = f.cur ?? this.controls.target;
     this.controls.target.copy(t);
     this.focusPos.copy(t);
-    this.focusId = t.length() < 0.05 ? 'sun' : 'free';
+    this.focusId = t.length() < 0.05 ? 'sun' : t.distanceTo(GC_POS) < 0.05 ? 'galcentre' : 'free';
     this.zPrev = Math.log10(Math.max(this.viewDistance, 1e-9));
     this.syncControlsUp();
     this.stillControls();
@@ -366,6 +481,34 @@ export class DeepSpace {
     const fromSun = pos.length();
     if (id === 'sun') {
       z = Math.log10(16); dir = this.viewDir(pos, 22);
+    } else if (GC_FOCUS.has(id) && id !== 'galcentre') {
+      // diving into the middle of the galaxy: take the 360° sky picture first (a short pause)
+      this.captureEnv();
+      const target = GC_POS.clone();
+      const cur = this.camera.position.clone().sub(GC_POS).normalize();
+      if (id === 'sgra') {
+        // stop beside the black hole, looking across its glowing disc (76° from straight above it)
+        const flat = cur.clone().addScaledVector(DISK_N, -cur.dot(DISK_N));
+        if (flat.lengthSq() < 1e-8) flat.set(0, 0, 1);
+        flat.normalize();
+        const inc = THREE.MathUtils.degToRad(76);
+        z = Math.log10(BH_VIEW_D) + this.portraitZ;
+        dir = DISK_N.clone().multiplyScalar(Math.cos(inc)).addScaledVector(flat, Math.sin(inc)).normalize();
+      } else if (id === 's2') {
+        // look down on S2's stretched orbit (centred on the whole loop) so you can watch it whip round
+        const o = this.gc.s2;
+        const n = new THREE.Vector3().crossVectors(o.Pv, o.Qv).normalize();
+        if (n.dot(cur) < 0) n.negate();
+        target.addScaledVector(o.Pv, -o.aLy * o.e);
+        z = Math.log10(o.aLy * 3.7) + this.portraitZ;
+        dir = n.add(cur.multiplyScalar(0.25)).normalize();
+      } else {
+        z = Math.log10(75) + this.portraitZ;
+        dir = this.viewDir(target, 35, cur.lengthSq() > 0 ? cur : null);
+      }
+      this.crossLinesOn = false;
+      this.flyTo({ target, z, dir, focusId: id, onDone });
+      return def;
     } else if (def.kind === 'star') {
       // stand a little beyond the star, looking back past it towards home, so the Sun is in view too
       const d = clamp(fromSun * 0.45, 1.6, 320);
@@ -409,7 +552,8 @@ export class DeepSpace {
       // when looking at the Sun, the closest you can get hands back to the planets; and the limit
       // never yanks the camera outwards (e.g. right after arriving from the planets)
       const d0 = this.camera.position.distanceTo(this.controls.target);
-      this.controls.minDistance = Math.min(this.focusId === 'sun' ? SUN_MIN_D : 0.4, d0);
+      const base = this.focusId === 'sun' ? SUN_MIN_D : GC_FOCUS.has(this.focusId) ? BH_MIN_D : 0.4;
+      this.controls.minDistance = Math.min(base, d0);
       const zPrev = this.zPrev ?? Math.log10(d0);
       this.controls.update();
       const z = Math.log10(this.camera.position.distanceTo(this.controls.target));
@@ -433,7 +577,17 @@ export class DeepSpace {
         this.camera.lookAt(this.controls.target);
       }
     }
+    // the telescope view turns "north" to the top of the screen, gently
+    const ok = this.upOverrideOn ? 1 : 0;
+    if (this.upOverride && this.upOverrideK !== ok) {
+      this.upOverrideK += (ok - this.upOverrideK) * (1 - Math.exp(-dt * 2.5));
+      if (Math.abs(ok - this.upOverrideK) < 1e-3) { this.upOverrideK = ok; if (!ok) this.upOverride = null; }
+    }
     this.applyScale(false, dt);
+  }
+
+  setUpOverride(v) {
+    if (v) { this.upOverride = v.clone(); this.upOverrideOn = true; } else this.upOverrideOn = false;
   }
 
   get viewDistance() { return this.camera.position.distanceTo(this.controls.target); }
@@ -451,8 +605,9 @@ export class DeepSpace {
     const H = window.innerHeight;
     const pxPerRad = H / THREE.MathUtils.degToRad(cam.fov);
 
-    // fades between the different scales
-    const photoK = 1 - smooth(3.35, 4.05, z);
+    // fades between the different scales (the Milky Way photo is the sky seen from home, so it
+    // goes by how far we are from the Sun)
+    const photoK = 1 - smooth(3.35, 4.05, Math.log10(Math.max(cam.position.length(), 1e-9)));
     this.photo.material.opacity = 0.55 * photoK;
     this.photo.visible = photoK > 0.002;
     this.photo.position.copy(cam.position);
@@ -473,11 +628,31 @@ export class DeepSpace {
     gu.uPixelRatio.value = this.pixelRatio;
     this.glows.visible = gu.uFade.value > 0.002;
 
-    const galK = smooth(3.4, 4.0, z);
+    // the galaxy: seen from outside when zoomed out, and all around you near its middle
+    const dGC = cam.position.distanceTo(GC_POS);
+    const zg = Math.log10(Math.max(dGC, 1e-12));
+    const galK = Math.max(smooth(3.4, 4.0, z), 1 - smooth(3.3, 3.9, zg));
     if (galK > 0 && !this.galaxy.ready) this.galaxy.prepare();
     this.galaxy.setFade(galK);
     this.galaxy.setPixelRatio(this.pixelRatio);
+    this.galaxy.expo.uExpoMix.value = smooth(3.7, 2.5, zg); // inside the bulge: a steady, darker exposure so its stars stand out
     for (const m of this.neighbours) m.material.opacity = 0.9 * smooth(4.1, 4.9, z);
+
+    // the middle of the galaxy and its black hole
+    if (zg < 1.5 && !this.env && this.active) this.captureEnv();
+    this.lens.tick(dt);
+    this.lens.enabled = this.active && zg < -0.3 && this.lens.update(cam);
+    this.gc.update(dt, cam, dGC, this.pixelRatio, this.lens.enabled);
+    const mk = smooth(2.6, 2.1, zg) * (1 - smooth(-2.5, -3.1, zg));
+    for (let i = 0; i < 2; i++) {
+      const m = i ? this.bhMarkFront : this.bhMark;
+      m.material.opacity = 0.85 * mk;
+      m.visible = (i === 1) === this.lens.enabled && mk > 0.002;
+      m.scale.setScalar((30 / pxPerRad) * dGC);
+    }
+    const s2 = this.places.s2;
+    s2.pos.copy(GC_POS).add(this.gc.s2Pos);
+    s2.obj.position.copy(s2.pos);
 
     // the Sun: starts as the big glow you saw from the planets, ends as a modest star
     const sunD = cam.position.length();
@@ -515,8 +690,10 @@ export class DeepSpace {
     for (const id in this.places) {
       const p = this.places[id];
       const [lo, hi] = p.def.range;
-      let show = names && d >= lo && d <= hi && !(this.flight && this.flight.t < 0.85);
-      if (show && id === this.cardFor) show = false; // the card already says what it is
+      // things at the very middle of the galaxy go by how far away they really are
+      const dd = GC_FOCUS.has(id) && id !== 'galcentre' ? p.pos.distanceTo(cam.position) : d;
+      let show = names && dd >= lo && dd <= hi && !(this.flight && this.flight.t < 0.85);
+      if (show && id === this.cardFor && id !== 's2') show = false; // the card already says what it is (but S2 moves: keep its name on it)
       if (show) {
         v.copy(p.pos).project(cam);
         if (v.z > 1 || v.z < -1 || Math.abs(v.x) > 1.05 || Math.abs(v.y) > 1.05) show = false;
@@ -563,6 +740,8 @@ export class DeepSpace {
   ladderPos() {
     const zs = RUNG_Z;
     const z = this.Z;
+    // diving into the middle of the galaxy is still "the Milky Way"
+    if (GC_FOCUS.has(this.focusId) && z < zs[zs.length - 1]) return zs.length;
     if (z <= zs[0]) return clamp(1 - (zs[0] - z) / (zs[0] - Z_HANDOFF), 0, 1);
     for (let i = 0; i < zs.length - 1; i++) if (z <= zs[i + 1]) return 1 + i + (z - zs[i]) / (zs[i + 1] - zs[i]);
     return zs.length;

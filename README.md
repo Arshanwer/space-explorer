@@ -49,6 +49,7 @@ Three.js 0.170, GSAP for animation, Vite for building. No other runtime librarie
 - **Time** button: slow, fast or stopped.
 - **Out to the stars** (new): keep pinching out past the planets, or tap the ladder on the left, and the solar system shrinks to a dot. Then come the nearest stars (Alpha Centauri, Sirius, Barnard's Star…), the bright star neighbours (Betelgeuse, Rigel, Matariki), and finally the whole **Milky Way** with a "You are here" marker. Every star is in its real place (about 43,000 of them), so constellations change shape as you fly. Try the Southern Cross: it starts as the pattern on the flag, then falls apart when you fly around it.
 - **The Milky Way** is drawn the way astronomers have measured it: a central bar, two big arms (Scutum–Centaurus and Perseus), two smaller ones, and the little Orion Spur where the Sun lives, with dust lanes and pink star nurseries. Look at it from above, from the side, or from inside.
+- **The black hole** (new): dive into the middle of the galaxy, through the crowded "star city" and its dusty ring, past the S-stars racing round on their real measured orbits (S2 goes round every 16 years), down to Sagittarius A* itself. Its picture is worked out with real physics: light bends round the hole (you can see the back of the glowing disc curled over the top), the side of the disc rushing towards you is brighter and bluer, and light that comes too close never gets out. **Light beams** shows what happens to light passing the hole; **Telescope view** shows it the way the Event Horizon Telescope sees it from Earth, next to a real picture made from that telescope's measurements.
 
 ### Controls
 
@@ -64,6 +65,8 @@ Three.js 0.170, GSAP for animation, Vite for building. No other runtime librarie
 - Sizes and distances are squeezed so everything fits: bigger things are still bigger, but not to scale (switch on Real sizes to compare sizes).
 - The Space Station interior is built from simple shapes laid out like the real modules, not a scan.
 - The Earth outside the Cupola is shown a bit higher than the real station flies, so more of it fits in the window.
+- The black hole's glowing disc is brighter and neater than the real one: Sagittarius A* only nibbles a little gas, and its glow is a faint, puffy haze best seen with radio telescopes. Everything else about how its light bends is worked out properly.
+- Close to the galactic centre, time is sped up (a year a second for the S-stars, about 300 times for the disc) so you can see things move.
 - The Real Solar System maps were stored upside down for a game engine. They're flipped back and checked against NASA reference maps (the Moon shows its familiar face, and Jupiter's Great Red Spot is in the south).
 
 ## Where the pictures come from
@@ -76,6 +79,9 @@ Three.js 0.170, GSAP for animation, Vite for building. No other runtime librarie
 - Stars: Yale Bright Star Catalogue.
 - Stars in 3D: the HYG database v4.1 by David Nash (astronexus), CC BY-SA 4.0. `src/data/starsNear.js` is a derived subset made by `scripts/hyg-to-js.py` and shares that licence.
 - Milky Way arm shapes: maser parallax measurements by Reid et al. (2019), carried round the far side.
+- The black hole picture in its card: reconstructed from the Event Horizon Telescope's public 2017 measurements of Sagittarius A* (EHT Collaboration 2022, public domain data) with the EHT's own eht-imaging pipeline, averaging 79 of its "top set" settings. The ring measures 52 µas, matching the published 51.8 ± 2.3 µas. It is a reconstruction made from the same data, not the press image itself.
+- S-star orbits (S2, S29, S38, S42, S55, S60) and the black hole's mass: GRAVITY Collaboration (2022). The other S-stars in the swarm are on made-up orbits of the same kind.
+- The black hole's light-bending: worked out exactly for a non-spinning black hole (the real one probably spins, which changes the shape only a little).
 - Fonts: Fredoka and Andika (SIL Open Font License); Andika is designed for children learning to read.
 
 ## Project layout
@@ -92,7 +98,8 @@ src/scene/stars.js       real star catalogue and Milky Way
 src/controls/fly.js      joystick and drag-to-look flying
 src/ui/ui.js             cards, dock, read-aloud
 src/deep/                deep space: frames.js (how the solar system, star catalogue and galaxy line up),
-                         starfield.js (43,000 real stars), galaxy.js (the Milky Way), deepSpace.js (camera, labels, trips)
+                         starfield.js (43,000 real stars), galaxy.js (the Milky Way), deepSpace.js (camera, labels, trips),
+                         galcentre.js + gcData.js (star city, dusty ring, S-stars), blackhole.js + photonTable.js (light bending)
 src/data/deep.js         stars and galaxy places you can visit, with their facts; the zoom ladder
 public/tex/sd|hd         planet maps (sd loads first; hd only for what you're looking at)
 public/models            NASA models (the detailed station, iss_0 + iss_1, loads only when you visit it)

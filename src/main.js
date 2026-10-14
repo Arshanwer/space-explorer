@@ -55,6 +55,9 @@ world.makeLabels((id) => select(id));
 // HDR render target with 4x multisampling so edges stay smooth with the glow effect on
 const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: isTouch ? 2 : 4 });
 const composer = new EffectComposer(renderer, rt);
+// The scene is drawn into renderTarget2 (the composer's starting readBuffer). renderTarget1 is only
+// ever written by the black hole's light-bending pass, which needs no edge smoothing.
+composer.renderTarget1.samples = 0;
 composer.setPixelRatio(dpr);
 composer.setSize(innerWidth, innerHeight);
 const renderPass = new RenderPass(scene, camera);
@@ -489,6 +492,7 @@ function loadDeep() {
       clearTimeout(slow);
       state.deep = new DeepSpace({ renderer, camera, dom: renderer.domElement, touch: isTouch, test: TEST, onPick: (id) => deepSelect(id) });
       state.deep.pixelRatio = dpr;
+      composer.insertPass(state.deep.lens, 1); // bends the picture round the black hole (only switched on near it)
       state.deep.warmUp();
       return state.deep;
     }).catch((e) => { clearTimeout(slow); deepLoading = null; throw e; });
@@ -558,6 +562,7 @@ function deepGo(dest, first) {
   if (dest === 'planets') { backToPlanets(); return; }
   const rung = RUNGS.find((r) => r.id === dest);
   if (!rung) { deepSelect(dest); return; }
+  resetBlackHole();
   hideCard(); setViewShift(false); markDock(null); stopSpeaking();
   deep.cardFor = null;
   refreshBlocked();
@@ -571,23 +576,69 @@ function deepGo(dest, first) {
 
 function deepCard(id, def) {
   const chips = (def.chips || []).filter((c) => DEEP[c]);
+  const lens = state.deep.lens;
   return {
     ...def, id: `deep-${id}`, chips: undefined,
-    chipsTitle: 'Close by',
-    chipItems: chips.length ? chips.map((c) => ({ id: c, name: DEEP[c].short || DEEP[c].name, style: starOrbStyle(state.deep.cssColor(c)) })) : null,
+    chipsTitle: def.chipsTitle || 'Close by',
+    chipItems: chips.length ? chips.map((c) => ({ id: c, name: DEEP[c].short || DEEP[c].name, style: DEEP[c].emoji ? '' : starOrbStyle(state.deep.cssColor(c)), emoji: DEEP[c].emoji })) : null,
+    actions: id === 'sgra' ? [
+      { id: 'beams', icon: '🔦', label: 'Light beams', pressed: lens.beamsOn },
+      { id: 'eht', icon: '📡', label: 'Telescope view', pressed: lens.ehtOn },
+    ] : null,
   };
+}
+
+// The black hole's two experiments: shine light past it, and see it the way the telescope does
+function blackHoleAction(act, btn) {
+  const deep = state.deep;
+  const lens = deep.lens;
+  const other = (id) => btn.parentElement.querySelector(`[data-x="${id}"]`);
+  if (act === 'beams') {
+    const on = !lens.beamsOn;
+    if (on && lens.ehtOn) { setTelescopeView(false); other('eht')?.setAttribute('aria-pressed', 'false'); }
+    lens.setBeams(on);
+    btn.setAttribute('aria-pressed', String(on));
+    if (on) { const m = 'Watch the light! Beams far away bend a little. Close ones swing right round. The closest fall in and never come out.'; toast(m, 7000); if (state.voice) speak(m); }
+  } else if (act === 'eht') {
+    const on = !lens.ehtOn;
+    if (on && lens.beamsOn) { lens.setBeams(false); other('beams')?.setAttribute('aria-pressed', 'false'); }
+    setTelescopeView(on);
+    btn.setAttribute('aria-pressed', String(on));
+    if (on) { const m = 'This is how the Event Horizon Telescope sees it from Earth: a blurry ring of light around a dark middle. Compare it with the real picture below!'; toast(m, 7500); if (state.voice) speak(m); }
+  }
+}
+function setTelescopeView(on) {
+  const deep = state.deep;
+  if (!deep) return;
+  deep.lens.setEht(on);
+  if (on) {
+    deep.setUpOverride(deep.skyNorth);
+    deep.flyTo({ target: deep.placePos('sgra'), z: Math.log10(deep.ehtViewD) + deep.portraitZ, dir: deep.earthDir, focusId: 'sgra', duration: 2.6 });
+  } else deep.setUpOverride(null);
+}
+function resetBlackHole() {
+  const lens = state.deep?.lens;
+  if (!lens) return;
+  if (lens.ehtOn) setTelescopeView(false);
+  lens.setBeams(false);
 }
 
 function deepSelect(id) {
   const deep = state.deep;
   if (!deep || state.mode !== 'deep' || state.busy) return;
+  resetBlackHole();
   const def = deep.select(id);
   if (!def) return;
   deep.cardFor = id;
   showCard(deepCard(id, def), {
-    onClose: () => { hideCard(); setViewShift(false); stopSpeaking(); markDock(null); deep.cardFor = null; refreshBlocked(); },
+    onClose: () => { hideCard(); setViewShift(false); stopSpeaking(); markDock(null); deep.cardFor = null; resetBlackHole(); refreshBlocked(); },
     onGo: (g) => deepSelect(g),
+    onAction: blackHoleAction,
   });
+  if (id === 'sgra' && !state.bhHinted) {
+    state.bhHinted = true;
+    setTimeout(() => { if (deep.cardFor === 'sgra') toast('A black hole! Drag to fly around it and watch the light bend.', 6000); }, 4000);
+  }
   setViewShift(true);
   refreshBlocked();
   markDock(id);
@@ -599,12 +650,14 @@ function backToPlanets() {
   const deep = state.deep;
   if (state.mode !== 'deep' || state.busy || !deep) return;
   state.busy = true;
+  resetBlackHole();
   hideCard(); setViewShift(false); markDock(null); stopSpeaking();
   deep.flyTo({
     target: new THREE.Vector3(), z: deep.zHandoff, dir: sceneDirToDeep(HOME_DIR), focusId: 'sun', locked: true,
     onDone: () => {
       const dirScene = deep.dirToSolarSystem();
       deep.leave();
+      composer.renderTarget1.dispose(); // only the black hole's pass draws into this one
       state.mode = 'space';
       renderPass.scene = scene;
       document.body.classList.remove('deep');
@@ -701,7 +754,8 @@ function updateLadder(pos) {
 }
 let scaleKey = '';
 const LY_UNITS = [
-  { per: 8766, one: 'light-hour', many: 'light-hours' }, // how far light goes in an hour
+  { per: 525960, one: 'light-minute', many: 'light-minutes' }, // how far light goes in a minute
+  { per: 8766, one: 'light-hour', many: 'light-hours' }, // ... in an hour
   { per: 365.25, one: 'light-day', many: 'light-days' },
   { per: 1, one: 'light-year', many: 'light-years' },
 ];
@@ -710,7 +764,7 @@ function updateScale(d) {
   const w = 2 * d * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
   const pxPerLy = innerWidth / w;
   const wantLy = 90 / pxPerLy;
-  const unit = wantLy < 0.004 ? LY_UNITS[0] : wantLy < 0.6 ? LY_UNITS[1] : LY_UNITS[2];
+  const unit = wantLy < 0.00008 ? LY_UNITS[0] : wantLy < 0.004 ? LY_UNITS[1] : wantLy < 0.6 ? LY_UNITS[2] : LY_UNITS[3];
   const want = wantLy * unit.per;
   const p10 = Math.pow(10, Math.floor(Math.log10(want)));
   let nice = p10;
@@ -979,6 +1033,7 @@ function frame() {
     updateLadder(deep.ladderPos());
     updateScale(deep.viewDistance);
     composer.render(dt);
+    if (deep.lens.enabled) composer.swapBuffers(); // the light-bending pass swapped them; next frame starts as usual
     labelRenderer.render(deep.scene, camera);
     return;
   }

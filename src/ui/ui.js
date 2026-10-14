@@ -80,6 +80,7 @@ export function markDock(id) {
 const KIND = {
   star: 'A star', planet: 'A planet', dwarf: 'A dwarf planet', moon: 'A moon', asteroid: 'An asteroid', craft: 'A spacecraft',
   region: 'A place in space', cluster: 'A star cluster', constellation: 'A star pattern', galaxy: 'A galaxy', arm: 'An arm of the Milky Way',
+  blackhole: 'A black hole',
 };
 
 export function showCard(def, h) {
@@ -91,14 +92,19 @@ export function showCard(def, h) {
   const chips = def.chips || def.moons || (def.id === 'earth' ? ['moon'] : null);
   const extraChips = def.chipItems ? null : def.id === 'earth' ? ['moon', 'iss', 'hubble'] : chips;
   const chipHtml = def.chipItems
-    ? `<p class="chips-title">${def.chipsTitle || 'Nearby'}</p><div class="chips">${def.chipItems.map((c) => `<button class="chip" data-go="${c.id}"><i style="${c.style}"></i>${c.name}</button>`).join('')}</div>`
+    ? `<p class="chips-title">${def.chipsTitle || 'Nearby'}</p><div class="chips">${def.chipItems.map((c) => `<button class="chip" data-go="${c.id}">${c.emoji ? `<i class="emoji" aria-hidden="true">${c.emoji}</i>` : `<i style="${c.style}"></i>`}${c.name}</button>`).join('')}</div>`
     : extraChips ? `<p class="chips-title">${def.id === 'belt' ? 'Real asteroids to visit' : def.id === 'earth' ? 'Near Earth' : 'Moons'}</p>
       <div class="chips">${extraChips.map((id) => `<button class="chip" data-go="${id}"><i style="${id === 'iss' || id === 'hubble' ? 'background:#9aa7bd' : orbStyle(id)}"></i>${BODY[id].name.replace(/^The /, '')}</button>`).join('')}</div>` : '';
+  const pic = def.picture
+    ? `<figure class="card-pic"><img src="${def.picture.src}" alt="${def.picture.alt}" loading="lazy" decoding="async"><figcaption>${def.picture.caption}</figcaption></figure>` : '';
+  const extra = (def.actions || []).map((a) => `<button class="btn btn-toggle" data-x="${a.id}" aria-pressed="${a.pressed ? 'true' : 'false'}"><span aria-hidden="true">${a.icon}</span> ${a.label}</button>`).join('');
   body.innerHTML = `
     <p class="card-kind">${kind}</p>
     <h2 class="card-name">${def.name}</h2>
     <p class="card-tag">${def.tagline}</p>
+    ${extra ? `<div class="actions toggles">${extra}</div>` : ''}
     <ul class="facts">${facts}</ul>
+    ${pic}
     <div class="actions">
       <button class="btn btn-ghost" data-act="read"><span aria-hidden="true">🔊</span> Read to me</button>
       ${def.inside ? '<button class="btn btn-rust" data-act="inside"><span aria-hidden="true">🔍</span> Look inside</button>' : ''}
@@ -106,6 +112,7 @@ export function showCard(def, h) {
     </div>
     ${chipHtml}
   `;
+  body.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', () => h.onAction?.(b.dataset.x, b)));
   body.querySelector('[data-act="read"]').onclick = () => speak(`${def.name}. ${def.tagline} ${def.facts.map((f) => f.text).join(' ')}`);
   body.querySelector('[data-act="inside"]')?.addEventListener('click', h.onInside);
   body.querySelector('[data-act="enter"]')?.addEventListener('click', h.onEnter);

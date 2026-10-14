@@ -16,7 +16,7 @@ export const RUNGS = [
 ];
 
 export const DEEP_DOCK = ['sun', 'proxima', 'alphacen', 'barnard', 'wolf359', 'sirius', 'vega', 'arcturus', 'matariki',
-  'southerncross', 'betelgeuse', 'rigel', 'polaris', 'canopus', 'antares', 'deneb', 'galcentre', 'lmc', 'smc', 'andromeda'];
+  'southerncross', 'betelgeuse', 'rigel', 'polaris', 'canopus', 'antares', 'deneb', 'galcentre', 'nsc', 'sgra', 'lmc', 'smc', 'andromeda'];
 
 const star = (o) => ({ kind: 'star', ...o });
 
@@ -290,11 +290,53 @@ export const DEEP = {
   galcentre: {
     kind: 'region', name: 'Centre of the Milky Way', short: 'Galaxy centre', color: '#ffd59a', range: [2500, 1.2e6], pri: 1, emoji: '🌀',
     tagline: 'A giant black hole lives right in the middle.',
+    chips: ['nsc', 'sgra'], chipsTitle: 'Dive in',
     facts: [
       { icon: '🕳️', text: 'The black hole is called Sagittarius A*. You say it “Sadge-ih-tair-ee-us A-star”.' },
       { icon: '⚖️', text: 'It is about 4 million times heavier than the Sun.' },
       { icon: '📏', text: 'It is about 26,000 light-years from us.' },
       { icon: '🌫️', text: 'Thick dust hides it, so astronomers use special telescopes that can see through dust.' },
+    ],
+  },
+  nsc: {
+    kind: 'cluster', name: 'The star city', short: 'Star city', color: '#ffd9a8', range: [6, 1500], pri: 2, emoji: '🏙️',
+    tagline: 'The most crowded place in the whole Milky Way.',
+    chips: ['sgra', 's2'], chipsTitle: 'Dive in',
+    facts: [
+      { icon: '🏙️', text: 'Millions of stars are packed in here, far closer together than the stars near the Sun.' },
+      { icon: '🌟', text: 'If you lived here, your night sky would be full of stars brighter than any star we can see from Earth.' },
+      { icon: '🍩', text: 'A huge lumpy ring of dust and gas goes around the middle, like a giant doughnut.' },
+      { icon: '🕳️', text: 'Right in the very middle is a giant black hole.' },
+    ],
+  },
+  sgra: {
+    kind: 'blackhole', name: 'Sagittarius A*', short: 'Black hole', color: '#d9ccff', range: [1.4e-4, 60], pri: 0, emoji: '🕳️',
+    tagline: 'The giant black hole in the middle of our galaxy.',
+    chips: ['s2', 'nsc'],
+    picture: {
+      src: 'tex/eht/sgra.jpg',
+      alt: 'A blurry orange ring of light with a dark middle',
+      caption: 'A real picture of it, made from the Event Horizon Telescope’s measurements. Seeing it from Earth is like spotting a doughnut on the Moon!',
+    },
+    facts: [
+      { icon: '🕳️', text: 'Its pull is so strong that nothing can get out, not even light. That is why the middle is black.' },
+      { icon: '⚖️', text: 'It is about 4 million times heavier than the Sun, squashed into a space smaller than Mercury’s path around the Sun.' },
+      { icon: '🔥', text: 'The glowing ring is hot gas whizzing round it so fast that it glows. The side rushing towards you looks brighter.' },
+      { icon: '🌈', text: 'Its gravity bends light. That is why you can see the back of the glowing ring, curled over the top and underneath.' },
+      { icon: '📸', text: 'In 2017, telescopes all over Earth worked together like one giant telescope to take its picture. It was shown to the world in 2022.' },
+      { icon: '🌍', text: 'Don’t worry: it is about 26,000 light-years away, much too far to pull us in.' },
+    ],
+  },
+  s2: {
+    kind: 'star', name: 'S2', short: 'S2', color: '#bcd4ff', range: [2e-4, 0.6], pri: 1,
+    tagline: 'The star that races round the black hole.',
+    chips: ['sgra', 'nsc'],
+    facts: [
+      { icon: '🏎️', text: 'It goes all the way round the black hole every 16 years.' },
+      { icon: '⚡', text: 'At its closest it zooms past at about 7,700 km every second. That’s fast enough to fly from New Zealand to London in under 3 seconds!' },
+      { icon: '🔬', text: 'By watching S2 for many years, scientists worked out how heavy the black hole is. They won a Nobel Prize for it in 2020.' },
+      { icon: '💙', text: 'It is a big, hot, blue star, more than 10 times heavier than the Sun.' },
+      { icon: '⏩', text: 'Time is sped up here: a whole year goes by every second.' },
     ],
   },
   milkyway: {

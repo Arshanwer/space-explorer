@@ -125,11 +125,14 @@ const QUAD_VERT = /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Positi
 // brightness; looking along the thin disc (edge-on) is capped separately so the bright line of the
 // disc doesn't burn out.
 const EXPO_GLSL = /* glsl */ `
-  uniform sampler2D uVol; uniform float uKey, uEdgeCap;
+  uniform sampler2D uVol; uniform float uKey, uEdgeCap, uExpoFix, uExpoMix;
   float autoExposure(){
     vec3 avg = textureLod(uVol, vec2(0.5), 14.0).rgb;
     float lum = dot(avg, vec3(0.3, 0.59, 0.11));
-    return clamp(min(uKey / max(lum, 1e-4), uEdgeCap), 0.06, 2.5);
+    float e = clamp(min(uKey / max(lum, 1e-4), uEdgeCap), 0.06, 2.5);
+    // deep inside the middle of the galaxy the exposure is held steady (the black hole's
+    // light-bending mixes this picture with a 360-degree one taken from the same spot)
+    return mix(e, uExpoFix, uExpoMix);
   }
 `;
 
@@ -184,8 +187,8 @@ const VOLUME_FRAG = /* glsl */ `
   }
 
   void main(){
-    vec4 v = uProjInv * vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
-    vec3 rd = normalize(mat3(uCamRot) * (v.xyz / v.w));
+    vec4 v = uProjInv * vec4(vUv * 2.0 - 1.0, -1.0, 1.0); // near plane: stays precise even when it is tiny
+    vec3 rd = normalize(mat3(uCamRot) * v.xyz);
     vec3 ro = uCam;
     vec2 s = slab(ro, rd, 4.6), c = cylinder(ro, rd, 62.0);
     float t0 = max(max(s.x, c.x), 0.0), t1 = min(s.y, c.y);
@@ -318,7 +321,7 @@ export class Galaxy {
     this.volRT = new THREE.WebGLRenderTarget(4, 4, {
       type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter,
     });
-    this.expo = { uVol: { value: this.volRT.texture }, uKey: { value: 0.11 }, uEdgeCap: { value: 2.5 } };
+    this.expo = { uVol: { value: this.volRT.texture }, uKey: { value: 0.11 }, uEdgeCap: { value: 2.5 }, uExpoFix: { value: 0.04 }, uExpoMix: { value: 0 } };
 
     // the volume, laid over the scene ("over" blending with premultiplied colour)
     this.composite = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
@@ -453,7 +456,7 @@ export class Galaxy {
     this.expo.uEdgeCap.value = 20 * Math.max(Math.abs(off.y) / Math.max(off.length(), 1), 0.02);
     u.uProjInv.value.copy(camera.projectionMatrixInverse);
     u.uCamRot.value.copy(camera.matrixWorld);
-    u.uPix.value = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / h;
+    u.uPix.value = Math.abs(2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / h; // (cube cameras use a negative fov)
     u.uSteps.value = this.steps;
     u.uTime.value = (u.uTime.value + 1) % 64;
     const r = this.renderer;
